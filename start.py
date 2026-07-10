@@ -3391,7 +3391,8 @@ if __name__ == '__main__':
             if one == "UPDATE":
                 from subprocess import run as _run
                 logger.info(f"{bcolors.WARNING}Updating to latest version...{bcolors.RESET}")
-                result = _run(["git", "pull"], capture_output=True, text=True)
+                _run(["git", "fetch", "https://github.com/YncTeam/YncDDoS.git", "main"], capture_output=True, text=True)
+                result = _run(["git", "reset", "--hard", "FETCH_HEAD"], capture_output=True, text=True)
                 if result.returncode == 0:
                     logger.info(f"{bcolors.OKBLUE}{result.stdout.strip()}{bcolors.RESET}")
                     logger.info(f"{bcolors.WARNING}Update complete. Restart the script to use the new version.{bcolors.RESET}")
