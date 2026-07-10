@@ -1670,7 +1670,7 @@ class HttpFlood(Thread):
         if fp.get("device_memory") and rc([True, False, False, False, False]):
             headers["device-memory"] = rc(fp["device_memory"])
         if fp.get("viewport") and rc([True, False, False, False, False, False]):
-        vp = rc(fp["viewport"]).split("x") if isinstance(fp["viewport"], list) else fp["viewport"].split("x")
+            vp = rc(fp["viewport"]).split("x") if isinstance(fp["viewport"], list) else fp["viewport"].split("x")
             headers["viewport-width"] = vp[0]
             if rc([True, False]):
                 headers["width"] = rc(("1920", "2560", "1366", "1536"))
