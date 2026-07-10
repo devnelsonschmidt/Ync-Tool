@@ -1,11 +1,11 @@
 cloudscraper==1.2.71
-certifi==2024.7.4
-dnspython==2.6.1
-requests==2.33.0
-impacket==0.10.0
-psutil>=5.9.3
-icmplib>=2.1.1
-pyasn1==0.6.3
+certifi==2026.6.17
+dnspython==2.8.0
+requests==2.34.2
+impacket==0.13.1
+psutil>=7.2.2
+icmplib>=3.0.4
+pyasn1==0.6.4
 pyroxy @ git+https://github.com/MatrixTM/PyRoxy.git
-yarl>=1.7.2
-curl_cffi>=0.11.0
+yarl>=1.24.2
+curl_cffi>=0.15.0
