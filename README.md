@@ -130,7 +130,7 @@ You can read it from [GitHub Wiki](https://github.com/MatrixTM/MHDDoS/wiki)
 
 ```shell script
 git clone https://github.com/devnelsonschmidt/Ync-Tool.git
-cd MHDDoS
+cd Ync-Tool
 pip install -r requirements.txt
 ```
 
