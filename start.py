@@ -3368,24 +3368,7 @@ def handleProxyList(con, proxy_li, proxy_ty, url=None):
         return None
 
     logger.info(
-        f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, checking...{bcolors.RESET}!")
-    check_threads = min(max(threads, 1000), len(Proxies))
-    Proxies = ProxyChecker.checkAll(
-        Proxies, timeout=7, threads=check_threads,
-        url=url.human_repr() if url else "http://httpbin.org/get",
-    )
-
-    if not Proxies:
-        logger.warning(f"{bcolors.WARNING}All proxies failed check, falling back to file{bcolors.RESET}")
-        if proxy_li.exists():
-            proxies = ProxyUtiles.readFromFile(proxy_li)
-            if proxies:
-                logger.info(f"{bcolors.WARNING}Proxy Count (cached): {bcolors.OKBLUE}{len(proxies):,}{bcolors.RESET}")
-                return proxies
-        exit(
-            "Proxy Check failed, Your network may be the problem"
-            " | The target may not be available."
-        )
+        f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, skipping check{bcolors.RESET}!")
 
     with proxy_li.open("w") as wr:
         wr.write("\n".join(proxy.__str__() for proxy in Proxies) + "\n")
