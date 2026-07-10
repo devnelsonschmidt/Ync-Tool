@@ -2291,7 +2291,7 @@ def _killer_process_entry(max_workers, rpc,
                           target_host, target_port, target_scheme,
                           target_authority, raw_target, is_https,
                           proxy_data, useragents, referers, fingerprints):
-    from random import uniform, randint, choice as rc, expovariate
+    from random import uniform, randint, choice as rc
     from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
     from socket import TCP_NODELAY, IPPROTO_TCP
     from concurrent.futures import ThreadPoolExecutor
