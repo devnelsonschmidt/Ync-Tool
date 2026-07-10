@@ -1815,9 +1815,9 @@ class HttpFlood(Thread):
     def _killer_rand_path(self) -> str:
         tmpl = randchoice(self._KILLER_PATHS)
         args = []
-        for _ in tmpl.count("%s"):
+    for _ in range(tmpl.count("%s")):
             args.append(ProxyTools.Random.rand_str(randchoice([4, 6, 8, 12, 16])))
-        for _ in tmpl.count("%d"):
+    for _ in range(tmpl.count("%d")):
             args.append(randint(1, 999999))
         return tmpl % tuple(args) if args else tmpl
 
