@@ -144,7 +144,7 @@ apt -y update && apt -y install curl wget libcurl4 libssl-dev python3 python3-pi
 
 ```shell script
 git clone https://github.com/MatrixTM/MHDDoS.git
-cd MHDDoS
+cd Ync-Tool
 docker compose build
 # you can use the built image directly by uncommenting one line in the dockercompose
 docker compose run -it --entrypoint /bin/bash mhddos
