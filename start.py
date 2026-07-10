@@ -3337,39 +3337,45 @@ def handleProxyList(con, proxy_li, proxy_ty, url=None):
         exit("Socks Type Not Found [4, 5, 1, 0, 6]")
     if proxy_ty == 6:
         proxy_ty = randchoice([4, 5, 1])
-    if not proxy_li.exists():
-        logger.warning(
-            f"{bcolors.WARNING}The file doesn't exist, creating files and downloading proxies.{bcolors.RESET}")
-        proxy_li.parent.mkdir(parents=True, exist_ok=True)
-        with proxy_li.open("w") as wr:
-            Proxies: Set[Proxy] = ProxyManager.DownloadFromConfig(con, proxy_ty)
-            logger.info(
-                f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies are getting checked, this may take awhile{bcolors.RESET}!"
-            )
-            Proxies = ProxyChecker.checkAll(
-                Proxies, timeout=5, threads=threads,
-                url=url.human_repr() if url else "http://httpbin.org/get",
-            )
 
-            if not Proxies:
-                exit(
-                    "Proxy Check failed, Your network may be the problem"
-                    " | The target may not be available."
-                )
-            stringBuilder = ""
-            for proxy in Proxies:
-                stringBuilder += (proxy.__str__() + "\n")
-            wr.write(stringBuilder)
+    proxy_li.parent.mkdir(parents=True, exist_ok=True)
 
-    proxies = ProxyUtiles.readFromFile(proxy_li)
-    if proxies:
-        logger.info(f"{bcolors.WARNING}Proxy Count: {bcolors.OKBLUE}{len(proxies):,}{bcolors.RESET}")
-    else:
+    Proxies: Set[Proxy] = ProxyManager.DownloadFromConfig(con, proxy_ty)
+    if not Proxies:
+        logger.warning(f"{bcolors.WARNING}No proxies downloaded, falling back to file{bcolors.RESET}")
+        if proxy_li.exists():
+            proxies = ProxyUtiles.readFromFile(proxy_li)
+            if proxies:
+                logger.info(f"{bcolors.WARNING}Proxy Count (cached): {bcolors.OKBLUE}{len(proxies):,}{bcolors.RESET}")
+                return proxies
         logger.info(
             f"{bcolors.WARNING}Empty Proxy File, running flood without proxy{bcolors.RESET}")
-        proxies = None
+        return None
 
-    return proxies
+    logger.info(
+        f"{bcolors.OKBLUE}{len(Proxies):,}{bcolors.WARNING} Proxies downloaded, checking...{bcolors.RESET}!")
+    Proxies = ProxyChecker.checkAll(
+        Proxies, timeout=5, threads=threads,
+        url=url.human_repr() if url else "http://httpbin.org/get",
+    )
+
+    if not Proxies:
+        logger.warning(f"{bcolors.WARNING}All proxies failed check, falling back to file{bcolors.RESET}")
+        if proxy_li.exists():
+            proxies = ProxyUtiles.readFromFile(proxy_li)
+            if proxies:
+                logger.info(f"{bcolors.WARNING}Proxy Count (cached): {bcolors.OKBLUE}{len(proxies):,}{bcolors.RESET}")
+                return proxies
+        exit(
+            "Proxy Check failed, Your network may be the problem"
+            " | The target may not be available."
+        )
+
+    with proxy_li.open("w") as wr:
+        wr.write("\n".join(proxy.__str__() for proxy in Proxies) + "\n")
+
+    logger.info(f"{bcolors.WARNING}Proxy Count: {bcolors.OKBLUE}{len(Proxies):,}{bcolors.RESET}")
+    return Proxies
 
 
 if __name__ == '__main__':
