@@ -3388,6 +3388,16 @@ if __name__ == '__main__':
                 ToolsConsole.runConsole()
             if one == "STOP":
                 ToolsConsole.stop()
+            if one == "UPDATE":
+                from subprocess import run as _run
+                logger.info(f"{bcolors.WARNING}Updating to latest version...{bcolors.RESET}")
+                result = _run(["git", "pull"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    logger.info(f"{bcolors.OKBLUE}{result.stdout.strip()}{bcolors.RESET}")
+                    logger.info(f"{bcolors.WARNING}Update complete. Restart the script to use the new version.{bcolors.RESET}")
+                else:
+                    logger.error(f"{bcolors.WARNING}Update failed: {result.stderr.strip()}{bcolors.RESET}")
+                exit()
 
             method = one
             host = None
